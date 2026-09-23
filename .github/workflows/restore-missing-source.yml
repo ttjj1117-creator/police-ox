@@ -1,0 +1,45 @@
+name: Restore missing project source
+
+on:
+  push:
+    paths:
+      - ".github/workflows/restore-missing-source.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild archived project and restore missing folders
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE_COMMIT="0910f3b883dc33268a5ec114f50b32e7315bbcec"
+          mkdir -p /tmp/police-ox-migration/chunks /tmp/police-ox-migration/unpacked
+
+          for n in 00 01 02 03 04 05 06 07; do
+            git show "${ARCHIVE_COMMIT}:.migration/chunk_${n}" > "/tmp/police-ox-migration/chunks/chunk_${n}"
+          done
+
+          cat /tmp/police-ox-migration/chunks/chunk_* | tr -d '\r\n' | base64 --decode > /tmp/police-ox-migration/project.zip
+          unzip -q /tmp/police-ox-migration/project.zip -d /tmp/police-ox-migration/unpacked
+
+          rm -rf src tests e2e
+          cp -R /tmp/police-ox-migration/unpacked/police-ox/src ./src
+          cp -R /tmp/police-ox-migration/unpacked/police-ox/tests ./tests
+          cp -R /tmp/police-ox-migration/unpacked/police-ox/e2e ./e2e
+
+          rm -f .github/workflows/restore-missing-source.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src tests e2e .github/workflows/restore-missing-source.yml
+          git commit -m "Restore missing source, tests, and e2e files"
+          git push origin HEAD:main
