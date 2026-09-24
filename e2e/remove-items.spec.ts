@@ -63,6 +63,40 @@ async function read(page: Page, namespace: Namespace): Promise<State> {
   }), namespace);
 }
 
+test("등록된 문제 목록은 coverage 없이 실제 지문을 집계하고 자연 순서로 표시한다", async ({ page }) => {
+  const states = { real: initialState(), demo: initialState(true) };
+  const template = initialState(true).dataset.items[0];
+  const rows = [
+    [2025, "2차", "constitution"],
+    [2026, "10차", "constitution"],
+    [2026, "2차", "police"],
+    [2026, "2차", "criminal"],
+    [2026, "2차", "constitution"],
+    [2026, "2차", "constitution"],
+    [2026, "1차", "constitution"],
+  ] as const;
+  states.real.dataset.items = rows.map(([year, round, subjectId], i) => ({
+    ...structuredClone(template), id: `registered-${i}`, subjectId,
+    source: { ...template.source, year, round },
+    areaId: null, primaryUnitId: null, relatedUnitIds: [],
+  }));
+  states.real.dataset.coverage = [];
+  await seed(page, states);
+  const panel = page.getByRole("region", { name: "등록된 문제 데이터", exact: true });
+  await expect(panel.locator("p")).toHaveText([
+    "2026 · 1차 · 헌법 · 지문 1개",
+    "2026 · 2차 · 헌법 · 지문 2개",
+    "2026 · 2차 · 형사법 · 지문 1개",
+    "2026 · 2차 · 경찰학 · 지문 1개",
+    "2026 · 10차 · 헌법 · 지문 1개",
+    "2025 · 2차 · 헌법 · 지문 1개",
+  ]);
+  expect((await read(page, "real")).dataset).toEqual(states.real.dataset);
+  states.real.dataset.items = [];
+  await seed(page, states);
+  await expect(panel).toContainText("등록된 문제 데이터 없음");
+});
+
 test("미리보기 후 선택 범위만 삭제하고 다른 학습 기록을 보존한다", async ({ page }) => {
   const states = fixture(); await seed(page, states);
   const panel = page.getByRole("region", { name: "문제 데이터 삭제", exact: true });

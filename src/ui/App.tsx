@@ -40,6 +40,21 @@ import { removeItems } from "../data/remove-items";
 import { installBookTaxonomies } from "../data/book-taxonomies";
 
 const repository = new Repository();
+function registeredProblems(items: Item[]) {
+  const groups = new Map<string, { year: number; round: string; subjectId: Item["subjectId"]; count: number }>();
+  for (const item of items) {
+    const { year, round } = item.source;
+    const key = JSON.stringify([year, round, item.subjectId]);
+    const group = groups.get(key);
+    if (group) group.count++;
+    else groups.set(key, { year, round, subjectId: item.subjectId, count: 1 });
+  }
+  const order = { constitution: 0, criminal: 1, police: 2 };
+  return [...groups.entries()].sort(([, a], [, b]) =>
+    b.year - a.year || a.round.localeCompare(b.round, "ko", { numeric: true }) ||
+    order[a.subjectId] - order[b.subjectId],
+  );
+}
 type Page = "home" | "scope" | "quiz" | "result" | "settings";
 type Pending = {
   kind: "import" | "restore";
@@ -670,24 +685,16 @@ export function App() {
                 학습 기록 초기화
               </button>
             </section>
-            <section>
-              <h2>자료 처리 상태</h2>
-              {s.dataset.coverage.length ? (
-                s.dataset.coverage.map((c) => (
-                  <p key={c.id}>
-                    {c.year} · {c.round} · {subjects[c.subjectId]}:{" "}
-                    {
-                      {
-                        not_started: "처리 전",
-                        partial: "일부 처리",
-                        complete: "처리 완료",
-                      }[c.status]
-                    }{" "}
-                    / 분류 {c.classificationComplete ? "완료" : "미완료"}
+            <section aria-labelledby="registered-problems-title">
+              <h2 id="registered-problems-title">등록된 문제 데이터</h2>
+              {s.dataset.items.length ? (
+                registeredProblems(s.dataset.items).map(([key, group]) => (
+                  <p key={key}>
+                    {group.year} · {group.round} · {subjects[group.subjectId]} · 지문 {group.count}개
                   </p>
                 ))
               ) : (
-                <p>자료 처리 상태 등록 전</p>
+                <p>등록된 문제 데이터 없음</p>
               )}
             </section>
           </>
