@@ -27,6 +27,5 @@ export function installBookTaxonomies(state: State): boolean {
     }
   }
   // Questions, attempts, sessions, marks, settings and existing custom nodes stay intact.
-  if (changed) state.dataset.datasetVersion++;
   return changed;
 }

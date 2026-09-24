@@ -20,11 +20,6 @@ export function mergeDataset(existing: Dataset, value: unknown) {
     throw new Error(
       "datasetId 불일치: 기존 데이터와 같은 데이터셋만 병합할 수 있습니다.",
     );
-  if (
-    existing.datasetId === incoming.datasetId &&
-    incoming.datasetVersion < existing.datasetVersion
-  )
-    throw new Error("datasetVersion이 이전 버전입니다.");
   let added = 0,
     updated = 0,
     unchanged = 0;
@@ -74,6 +69,8 @@ export function mergeDataset(existing: Dataset, value: unknown) {
   });
   const merged = parseDataset({
     ...incoming,
+    // Informational only: partial imports may come from an older export.
+    datasetVersion: Math.max(existing.datasetVersion, incoming.datasetVersion),
     items,
     taxonomies,
     studyGroups: merge(existing.studyGroups, incoming.studyGroups, () => {}),

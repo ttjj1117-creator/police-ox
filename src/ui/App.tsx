@@ -35,6 +35,8 @@ import {
 import { subjects } from "../fixtures/data";
 import { useCurrentLearning } from "../domain/current-policy";
 import { UnitTree } from "./UnitTree";
+import { DeleteItems } from "./DeleteItems";
+import { removeItems } from "../data/remove-items";
 import { installBookTaxonomies } from "../data/book-taxonomies";
 
 const repository = new Repository();
@@ -539,6 +541,27 @@ export function App() {
               </button>
               <p className="muted">학습 기록은 포함하지 않습니다.</p>
             </section>
+            <DeleteItems
+              key={`${namespace}:${envelope!.generation}`}
+              state={s}
+              namespace={namespace}
+              busy={busy}
+              onDelete={(ids) => {
+                let removed = 0;
+                mutate(
+                  (draft) => {
+                    const result = removeItems(draft, new Set(ids));
+                    removed = result.counts.items;
+                    Object.assign(draft, result.state);
+                  },
+                  () => {
+                    setSessionId(null);
+                    setPending(null);
+                    setNotice(`문제 ${removed}개와 관련 학습 기록을 삭제했습니다.`);
+                  },
+                );
+              }}
+            />
             <section>
               <h2>전체 백업·복구</h2>
               <p>

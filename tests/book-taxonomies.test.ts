@@ -61,6 +61,7 @@ it("기존 목차·문제·응답·세션·설정은 보존하며 한번만 추�
     taxonomyVersion: 1,
   });
   const before = canonical({
+    datasetVersion: s.dataset.datasetVersion,
     items: s.dataset.items,
     attempts: s.attempts,
     sessions: s.sessions,
@@ -73,6 +74,7 @@ it("기존 목차·문제·응답·세션·설정은 보존하며 한번만 추�
   expect(installBookTaxonomies(s)).toBe(true);
   expect(
     canonical({
+      datasetVersion: s.dataset.datasetVersion,
       items: s.dataset.items,
       attempts: s.attempts,
       sessions: s.sessions,
