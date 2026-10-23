@@ -1,0 +1,162 @@
+{
+  "format": "police-exam-profile",
+  "schemaVersion": 1,
+  "profileVersion": "1.0.0",
+  "profiles": [
+    {
+      "id": "po-standard-100-v1",
+      "examCode": "po",
+      "title": "순경 공채 기출 재조합 모의고사",
+      "enabled": true,
+      "durationSeconds": 6000,
+      "totalQuestions": 100,
+      "totalPoints": 250,
+      "pointsPerQuestion": 2.5,
+      "subjectOrder": [
+        "constitution",
+        "criminal",
+        "police"
+      ],
+      "subjects": [
+        {
+          "subjectId": "constitution",
+          "questions": 20,
+          "points": 50
+        },
+        {
+          "subjectId": "criminal",
+          "questions": 40,
+          "points": 100
+        },
+        {
+          "subjectId": "police",
+          "questions": 40,
+          "points": 100
+        }
+      ],
+      "areas": [
+        {
+          "code": "CONST-THEORY",
+          "subjectId": "constitution",
+          "title": "헌법총론·한국 헌법의 기본질서",
+          "percent": 20,
+          "targetQuestions": 4
+        },
+        {
+          "code": "CONST-RIGHTS",
+          "subjectId": "constitution",
+          "title": "기본권 총론·각론",
+          "percent": 80,
+          "targetQuestions": 16
+        },
+        {
+          "code": "CRIM-GENERAL",
+          "subjectId": "criminal",
+          "title": "형법총론",
+          "percent": 35,
+          "targetQuestions": 14
+        },
+        {
+          "code": "CRIM-SPECIAL",
+          "subjectId": "criminal",
+          "title": "형법각론",
+          "percent": 35,
+          "targetQuestions": 14
+        },
+        {
+          "code": "CRIM-INV",
+          "subjectId": "criminal",
+          "title": "형사소송법 수사",
+          "percent": 15,
+          "targetQuestions": 6
+        },
+        {
+          "code": "CRIM-EVD",
+          "subjectId": "criminal",
+          "title": "형사소송법 증거",
+          "percent": 15,
+          "targetQuestions": 6
+        },
+        {
+          "code": "POL-ADMIN-LAW",
+          "subjectId": "police",
+          "title": "경찰행정법",
+          "percent": 35,
+          "targetQuestions": 14
+        },
+        {
+          "code": "POL-FOUNDATIONS",
+          "subjectId": "police",
+          "title": "경찰학의 기초이론",
+          "percent": 30,
+          "targetQuestions": 12
+        },
+        {
+          "code": "POL-ADMIN-SCIENCE",
+          "subjectId": "police",
+          "title": "경찰행정학",
+          "percent": 15,
+          "targetQuestions": 6
+        },
+        {
+          "code": "POL-ACTIVITIES",
+          "subjectId": "police",
+          "title": "분야별 경찰활동",
+          "percent": 15,
+          "targetQuestions": 6
+        },
+        {
+          "code": "POL-HISTORY",
+          "subjectId": "police",
+          "title": "한국경찰의 역사와 비교경찰",
+          "percent": 5,
+          "targetQuestions": 2
+        }
+      ],
+      "shortagePolicy": "block_start_and_show_shortages",
+      "questionUnit": "original_question",
+      "allowDuplicateQuestionIds": false,
+      "shuffleChoices": false,
+      "pauseAllowed": false
+    }
+  ],
+  "futureSubjects": [
+    {
+      "subjectId": "criminology",
+      "title": "범죄학",
+      "enabled": false
+    },
+    {
+      "subjectId": "civil_general",
+      "title": "민법총칙",
+      "enabled": false
+    }
+  ],
+  "futureExams": [
+    {
+      "examCode": "lieut",
+      "title": "경위 공채",
+      "enabled": false,
+      "reason": "별도 문항 수·배점·교시 설정 확정 후 활성화"
+    }
+  ],
+  "sources": [
+    {
+      "title": "경찰공무원 임용령 별표 2",
+      "url": "https://www.law.go.kr/LSW/flDownload.do?bylClsCd=110201&flSeq=148675885&gubun=",
+      "checkedOn": "2026-10-21",
+      "supports": "과목 배점·과목 내 출제 비율. 문항 배정은 비율을 적용한 앱의 기본 목표값."
+    },
+    {
+      "title": "강원경찰청 2026년 제2차 필기시험 장소 안내",
+      "url": "https://www.gwpolice.go.kr/FileDownloadBoard?boardNo=585&f_no=1&groupNo=11037&p_nm=mb",
+      "checkedOn": "2026-10-21",
+      "supports": "순경 공채 필기시험 10:00~11:40, 100분"
+    }
+  ],
+  "notes": [
+    "공식 비율은 '내외'이다. targetQuestions는 앱의 고정 편성 목표이며 모든 실제 기출 회차가 정확히 같은 수라는 뜻은 아니다.",
+    "subjectOrder는 앱의 기본 표시 순서이며 모든 원본 PDF의 과목 순서라는 주장은 아니다.",
+    "기출 재조합 결과를 새로 출제된 문제나 합격 가능성 예측으로 표시하지 않는다."
+  ]
+}

@@ -28,6 +28,8 @@ npm run finalize -- --input items.json --output dataset.json --existing real-bac
 콘솔의 JSON 보고서는 입력·출력 SHA-256, canonical 저장소 커밋,
 승격·지문·목차 건수, 검증 결과와 병합 결과를 기록한다.
 실행 전 현재 저장소가 최신 main인지 확인한다.
+Git 저장소가 아닌 기준 PC 폴더에서 실행할 때는 `canonicalCommit`을 `null`로 보고한다.
+검증된 출력 작성은 계속 가능하며, 커밋을 임의로 만들어 보고하지 않는다.
 
 ## 출력 계약
 

@@ -9,7 +9,7 @@
     "finalize": "tsx scripts/finalize-items-cli.ts",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "node scripts/run-e2e.cjs"
   },
   "dependencies": {
     "react": "19.1.0",

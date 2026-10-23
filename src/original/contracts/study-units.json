@@ -1,0 +1,1296 @@
+{
+  "format": "police-study-unit-registry",
+  "schemaVersion": 1,
+  "registryVersion": "1.0.0",
+  "createdAt": "2026-10-21",
+  "source": {
+    "repository": "ttjj1117-creator/police-ox",
+    "ref": "main",
+    "path": "src/fixtures/book-taxonomies.json",
+    "blobSha": "15bfcaf939955cd15833eba5d5597f6492f10da5"
+  },
+  "units": [
+    {
+      "code": "CONST-01",
+      "subjectId": "constitution",
+      "group": "헌법총론",
+      "title": "헌법과 헌법학",
+      "order": 1,
+      "bookNodeIds": [
+        "2104dd36-6bd7-435e-85f8-c4bbda152569"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1편 제1장 전체: 헌법의 의의, 합헌적 법률해석, 제정·개정·변천, 헌법의 수호",
+      "bookStartPages": [
+        10
+      ]
+    },
+    {
+      "code": "CONST-02",
+      "subjectId": "constitution",
+      "group": "헌법총론",
+      "title": "대한민국헌정사·국가형태와 구성요소",
+      "order": 2,
+      "bookNodeIds": [
+        "eb3ccf4c-32b8-4f54-9f44-e24eeedf623d",
+        "e88d27f3-4f2d-4e3f-b60c-c295df6add58"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1편 제2장 제1~2절",
+      "bookStartPages": [
+        42
+      ]
+    },
+    {
+      "code": "CONST-03",
+      "subjectId": "constitution",
+      "group": "헌법총론",
+      "title": "한국헌법의 기본원리·기본질서·기본제도",
+      "order": 3,
+      "bookNodeIds": [
+        "e9b4b4c4-14b6-4499-85a9-7931fd2656ff",
+        "777b8649-7e34-41eb-bab0-744bd95f2ada",
+        "deea2be6-8997-4eff-b881-91b5ae655a17"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1편 제2장 제3~5절",
+      "bookStartPages": [
+        77
+      ]
+    },
+    {
+      "code": "CONST-04",
+      "subjectId": "constitution",
+      "group": "헌법총론",
+      "title": "정당·선거제도",
+      "order": 4,
+      "bookNodeIds": [
+        "b9bd9de9-ba31-484a-9d75-b144e60fc013",
+        "780f8c89-26bd-4fa8-b0f2-b46c09708c3f"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1편 제2장 제6~7절",
+      "bookStartPages": [
+        124
+      ]
+    },
+    {
+      "code": "CONST-05",
+      "subjectId": "constitution",
+      "group": "헌법총론",
+      "title": "공무원·지방자치·교육·가족제도",
+      "order": 5,
+      "bookNodeIds": [
+        "c97ee2e0-1229-4174-89d0-537370b56589",
+        "b35579b0-280e-46d5-bb47-31b169e4492a",
+        "de4fccbf-7483-4c0c-9291-ae3bdbd42138",
+        "50914a8e-8bcb-4efe-b400-38165b6c7eae"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1편 제2장 제8~11절",
+      "bookStartPages": [
+        181
+      ]
+    },
+    {
+      "code": "CONST-06",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "기본권의 의의·성격·주체·효력",
+      "order": 6,
+      "bookNodeIds": [
+        "56e7ae41-c0be-42c7-a499-fccddb71c6a4",
+        "6df72089-8d70-4caf-93fe-1c3dc3332500",
+        "cd9536be-974f-4f53-b58a-902594b4aaf4",
+        "234419d6-ea70-4224-99be-b8fb1766ed55"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제1장 제1~4절",
+      "bookStartPages": [
+        232
+      ]
+    },
+    {
+      "code": "CONST-07",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "기본권의 한계·제한·침해·구제",
+      "order": 7,
+      "bookNodeIds": [
+        "7d287c31-971e-4f1a-b375-752bcd6d84a4",
+        "64cfe9a9-b568-4aa0-befb-70a167d73ccc"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제1장 제5~6절",
+      "bookStartPages": [
+        261
+      ]
+    },
+    {
+      "code": "CONST-08",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "인간의 존엄과 가치·행복추구권",
+      "order": 8,
+      "bookNodeIds": [
+        "b731c5a2-fe03-47d4-9297-84f9c95a2917",
+        "a93aee8a-2ea7-4f5a-97a1-ab98117a566d"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제2장 제1~2절",
+      "bookStartPages": [
+        284
+      ]
+    },
+    {
+      "code": "CONST-09",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "평등권",
+      "order": 9,
+      "bookNodeIds": [
+        "9a9a50bc-3bd0-4a3e-a7d6-a230fd156f13"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제2장 제3절 '법 앞의 평등'",
+      "bookStartPages": [
+        328
+      ]
+    },
+    {
+      "code": "CONST-10",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "인신의 자유권",
+      "order": 10,
+      "bookNodeIds": [
+        "d100d1e7-5c81-4a9f-a36e-bb357bf9990d"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제3장 제1절",
+      "bookStartPages": [
+        408
+      ]
+    },
+    {
+      "code": "CONST-11",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "사생활의 자유권",
+      "order": 11,
+      "bookNodeIds": [
+        "0e13806f-efa6-4d38-b701-9f93d8490d8a"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제3장 제2절",
+      "bookStartPages": [
+        497
+      ]
+    },
+    {
+      "code": "CONST-12",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "정신적 자유권",
+      "order": 12,
+      "bookNodeIds": [
+        "2b130636-b2a6-4afe-90aa-d43bfea1fc01"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제3장 제3절",
+      "bookStartPages": [
+        552
+      ]
+    },
+    {
+      "code": "CONST-13",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "재산권",
+      "order": 13,
+      "bookNodeIds": [
+        "8e245bd2-dc9d-4c56-94c5-5860ff479ef3"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제4장 제1절",
+      "bookStartPages": [
+        656
+      ]
+    },
+    {
+      "code": "CONST-14",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "직업선택의 자유·소비자의 권리",
+      "order": 14,
+      "bookNodeIds": [
+        "9ddedb49-344b-4229-8895-a3afc6f3c08e",
+        "9472be6a-113f-402d-b03b-234bf50c15ab"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제4장 제2~3절",
+      "bookStartPages": [
+        707
+      ]
+    },
+    {
+      "code": "CONST-15",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "정치적 기본권",
+      "order": 15,
+      "bookNodeIds": [
+        "14af7c2e-484d-40da-8ffe-2cd52e6a39e5"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제5장 전체: 개설·참정권",
+      "bookStartPages": [
+        768
+      ]
+    },
+    {
+      "code": "CONST-16",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "청구권적 기본권의 개설·청원권·재판청구권",
+      "order": 16,
+      "bookNodeIds": [
+        "35c270fa-86c8-4a8c-bb99-2f71ba983f56",
+        "1a397af2-fd6e-48bc-82e1-f6fd0e2220f6",
+        "a0e344db-9a68-4635-8e31-5da6bad3c295"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제6장 제1~3절",
+      "bookStartPages": [
+        790
+      ]
+    },
+    {
+      "code": "CONST-17",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "국가배상·국가보상·범죄피해자구조청구권",
+      "order": 17,
+      "bookNodeIds": [
+        "09304025-86b0-4a63-ae80-477c1b189f87",
+        "9a65e3d1-8b23-4767-ba87-060d9906e175",
+        "7edee742-3cd9-4930-b0cb-7f1a649e7b3b"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제6장 제4~6절",
+      "bookStartPages": [
+        839
+      ]
+    },
+    {
+      "code": "CONST-18",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "사회적 기본권",
+      "order": 18,
+      "bookNodeIds": [
+        "ead79b4a-1cc7-4056-afc7-8b6edad9416c"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제7장 전체: 구조·체계, 인간다운 생활권, 교육, 근로, 근로3권, 환경, 보건·모성보호",
+      "bookStartPages": [
+        866
+      ]
+    },
+    {
+      "code": "CONST-19",
+      "subjectId": "constitution",
+      "group": "기본권론",
+      "title": "국민의 기본적 의무",
+      "order": 19,
+      "bookNodeIds": [
+        "434674ee-36e6-4e1f-8938-8c3b5e865188"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2편 제8장 전체",
+      "bookStartPages": [
+        938
+      ]
+    },
+    {
+      "code": "CRIM-G-01",
+      "subjectId": "criminal",
+      "group": "형법의 기초",
+      "title": "형법의 기본개념·학파·죄형법정주의",
+      "order": 1,
+      "bookNodeIds": [
+        "29e12428-7c63-482a-92a3-8a7eefafa481",
+        "0dfc666e-81c7-42c5-b530-35aa70cdb680",
+        "9ea4db8e-2e4d-416a-874e-b4af102853ef"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제1편 제1~3장",
+      "bookStartPages": [
+        10
+      ]
+    },
+    {
+      "code": "CRIM-G-02",
+      "subjectId": "criminal",
+      "group": "형법의 기초",
+      "title": "형법의 적용범위",
+      "order": 2,
+      "bookNodeIds": [
+        "48de4077-3b03-4ff6-8d5e-c299672175c8"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제1편 제4장 전체",
+      "bookStartPages": [
+        40
+      ]
+    },
+    {
+      "code": "CRIM-G-03",
+      "subjectId": "criminal",
+      "group": "범죄론",
+      "title": "범죄의 기본개념",
+      "order": 3,
+      "bookNodeIds": [
+        "330a56f8-cb56-4c89-9ef7-21db2386de75"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제2편 제1장 전체",
+      "bookStartPages": [
+        52
+      ]
+    },
+    {
+      "code": "CRIM-G-04",
+      "subjectId": "criminal",
+      "group": "범죄론",
+      "title": "구성요건의 일반이론·인과관계와 객관적 귀속",
+      "order": 4,
+      "bookNodeIds": [
+        "ac12250d-e256-4d5c-8e0d-4d3c96bea24c",
+        "99beb248-05c2-424b-9acc-f61826e45754",
+        "93ddacff-3174-4fdc-81a4-4d2980e8e48e"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제2편 제2장 제1~3절",
+      "bookStartPages": [
+        60
+      ]
+    },
+    {
+      "code": "CRIM-G-05",
+      "subjectId": "criminal",
+      "group": "범죄론",
+      "title": "구성요건적 고의·착오",
+      "order": 5,
+      "bookNodeIds": [
+        "9e139d97-0d39-4da2-980a-7e30dde0f884",
+        "705fa731-e8a9-44bc-88fd-7e45f5cdafa3"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제2편 제2장 제4~5절",
+      "bookStartPages": [
+        67
+      ]
+    },
+    {
+      "code": "CRIM-G-06",
+      "subjectId": "criminal",
+      "group": "범죄론",
+      "title": "위법성론",
+      "order": 6,
+      "bookNodeIds": [
+        "84ff05ad-c330-4ba2-afca-9663b8d1b08e"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제2편 제3장 전체",
+      "bookStartPages": [
+        78
+      ]
+    },
+    {
+      "code": "CRIM-G-07",
+      "subjectId": "criminal",
+      "group": "범죄론",
+      "title": "책임론",
+      "order": 7,
+      "bookNodeIds": [
+        "b95d9dc7-c259-4644-8ee0-029bdb55ad4a"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제2편 제4장 전체",
+      "bookStartPages": [
+        110
+      ]
+    },
+    {
+      "code": "CRIM-G-08",
+      "subjectId": "criminal",
+      "group": "범죄론",
+      "title": "미수론",
+      "order": 8,
+      "bookNodeIds": [
+        "15404f52-b983-4537-bfcd-615ec084a93c"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제2편 제5장 전체: 실행단계, 장애·중지·불능미수, 예비·음모",
+      "bookStartPages": [
+        132
+      ]
+    },
+    {
+      "code": "CRIM-G-09",
+      "subjectId": "criminal",
+      "group": "범죄론",
+      "title": "공범론",
+      "order": 9,
+      "bookNodeIds": [
+        "4684124e-d872-49bb-90c2-714558a0a346"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제2편 제6장 전체",
+      "bookStartPages": [
+        146
+      ]
+    },
+    {
+      "code": "CRIM-G-10",
+      "subjectId": "criminal",
+      "group": "범죄론",
+      "title": "부작위범·과실범·결과적 가중범",
+      "order": 10,
+      "bookNodeIds": [
+        "fe16f025-d0be-4ac8-a038-d1ac3737b07d"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제2편 제7장 전체",
+      "bookStartPages": [
+        184
+      ]
+    },
+    {
+      "code": "CRIM-G-11",
+      "subjectId": "criminal",
+      "group": "범죄론",
+      "title": "죄수론",
+      "order": 11,
+      "bookNodeIds": [
+        "b0abf0d6-2695-4c9d-b402-af95c465dce7"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제2편 제8장 전체",
+      "bookStartPages": [
+        210
+      ]
+    },
+    {
+      "code": "CRIM-G-12",
+      "subjectId": "criminal",
+      "group": "형벌론",
+      "title": "형벌·양정·누범·유예·시효·보안처분",
+      "order": 12,
+      "bookNodeIds": [
+        "33bb84d3-674f-4077-bc6e-9067d2b6244c"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "총론 제3편 제1~6절 전체",
+      "bookStartPages": [
+        238
+      ]
+    },
+    {
+      "code": "CRIM-S-01",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "생명과 신체에 대한 죄",
+      "order": 1,
+      "bookNodeIds": [
+        "6e356c22-c1ce-4b38-8ead-55f3c9c993a6"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제1장 전체: 살인, 상해·폭행, 과실치사상, 낙태, 유기·학대",
+      "bookStartPages": [
+        270
+      ]
+    },
+    {
+      "code": "CRIM-S-02",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "협박·체포감금·약취유인·강요",
+      "order": 2,
+      "bookNodeIds": [
+        "e91b4a91-be2c-49f2-b4ef-28ef8f8ad1e3",
+        "f285237b-02fb-49d5-85d0-3563d15408a5",
+        "7dea28a0-1834-4e0a-84e5-6704e1b2f344",
+        "3f806e01-6290-4f3f-b4d7-a0615e71b57c"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제2장 제1~4절",
+      "bookStartPages": [
+        300
+      ]
+    },
+    {
+      "code": "CRIM-S-03",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "강간과 추행의 죄",
+      "order": 3,
+      "bookNodeIds": [
+        "8dfd8c06-f743-4777-a26a-ce29633ad834"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제2장 제5절",
+      "bookStartPages": [
+        316
+      ]
+    },
+    {
+      "code": "CRIM-S-04",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "명예에 관한 죄",
+      "order": 4,
+      "bookNodeIds": [
+        "52a58a37-be3a-4aeb-b13e-0b690f81943e"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제3장 제1절",
+      "bookStartPages": [
+        334
+      ]
+    },
+    {
+      "code": "CRIM-S-05",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "신용·업무·경매에 관한 죄",
+      "order": 5,
+      "bookNodeIds": [
+        "f1ef72cf-c2c2-4440-85c1-0d353ff216e4"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제3장 제2절",
+      "bookStartPages": [
+        354
+      ]
+    },
+    {
+      "code": "CRIM-S-06",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "비밀침해·주거침입",
+      "order": 6,
+      "bookNodeIds": [
+        "2c8e411f-77da-47ea-81d2-bddb81c4736b"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제4장 전체",
+      "bookStartPages": [
+        372
+      ]
+    },
+    {
+      "code": "CRIM-S-07",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "재산죄 일반론·절도",
+      "order": 7,
+      "bookNodeIds": [
+        "208dcc9d-2b9b-44d4-a425-f81da4fc960c",
+        "f33a80be-0b79-4adc-bf04-611b493f09ba"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제5장 제1~2절",
+      "bookStartPages": [
+        382
+      ]
+    },
+    {
+      "code": "CRIM-S-08",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "강도",
+      "order": 8,
+      "bookNodeIds": [
+        "05326499-73cb-473b-9035-a338e44718ae"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제5장 제3절",
+      "bookStartPages": [
+        403
+      ]
+    },
+    {
+      "code": "CRIM-S-09",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "사기·공갈",
+      "order": 9,
+      "bookNodeIds": [
+        "1fb12b13-3a01-4055-915a-9c9756b266c3",
+        "76eaff99-e5f2-404a-8b6d-15b87bb974ee"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제5장 제4~5절",
+      "bookStartPages": [
+        414
+      ]
+    },
+    {
+      "code": "CRIM-S-10",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "횡령",
+      "order": 10,
+      "bookNodeIds": [
+        "ae07d709-6da3-4374-83be-5c030ef7247c"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제5장 제6절",
+      "bookStartPages": [
+        446
+      ]
+    },
+    {
+      "code": "CRIM-S-11",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "배임",
+      "order": 11,
+      "bookNodeIds": [
+        "54d0cb2c-5b99-413e-8a49-e40930ee2a9c"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제5장 제7절",
+      "bookStartPages": [
+        460
+      ]
+    },
+    {
+      "code": "CRIM-S-12",
+      "subjectId": "criminal",
+      "group": "개인적 법익",
+      "title": "장물·손괴·권리행사방해",
+      "order": 12,
+      "bookNodeIds": [
+        "8883f2a5-f94b-448a-b9f3-ef80252551cd",
+        "a038e439-c8ab-409e-93b7-2bd4344923f0",
+        "87270f15-7bba-49c2-a450-269653d2eca7"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제1편 제5장 제8~10절",
+      "bookStartPages": [
+        480
+      ]
+    },
+    {
+      "code": "CRIM-S-13",
+      "subjectId": "criminal",
+      "group": "사회적 법익",
+      "title": "공공의 안전과 평온에 대한 죄",
+      "order": 13,
+      "bookNodeIds": [
+        "d7e093a3-fb03-4840-b0a5-b3c9e453206d"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제2편 제1장 전체: 공안, 폭발물, 방화·실화, 일수·수리, 교통방해",
+      "bookStartPages": [
+        502
+      ]
+    },
+    {
+      "code": "CRIM-S-14",
+      "subjectId": "criminal",
+      "group": "사회적 법익",
+      "title": "통화·유가증권·우표·인지에 관한 죄",
+      "order": 14,
+      "bookNodeIds": [
+        "2cac0d37-0037-4ffe-81cb-14c17fe8688e",
+        "dcdc27a2-3d3a-4107-a3a0-440003a2c113"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제2편 제2장 제1~2절",
+      "bookStartPages": [
+        518
+      ]
+    },
+    {
+      "code": "CRIM-S-15",
+      "subjectId": "criminal",
+      "group": "사회적 법익",
+      "title": "문서·인장에 관한 죄",
+      "order": 15,
+      "bookNodeIds": [
+        "a62b9e20-6dab-4fe6-b42b-e7d01563563e",
+        "80ae0a47-fcc4-43bd-b72f-1265ac606674"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제2편 제2장 제3~4절",
+      "bookStartPages": [
+        527
+      ]
+    },
+    {
+      "code": "CRIM-S-16",
+      "subjectId": "criminal",
+      "group": "사회적 법익",
+      "title": "공중의 건강·사회의 도덕에 대한 죄",
+      "order": 16,
+      "bookNodeIds": [
+        "119e5600-f0af-431b-9b7a-d9c70671ef00",
+        "ef6110da-e557-4803-b362-0da6380e164c"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제2편 제3~4장 전체",
+      "bookStartPages": [
+        554
+      ]
+    },
+    {
+      "code": "CRIM-S-17",
+      "subjectId": "criminal",
+      "group": "국가적 법익",
+      "title": "국가의 존립과 권위에 대한 죄",
+      "order": 17,
+      "bookNodeIds": [
+        "fdeb5ec0-32f3-417c-aca8-b2ed19191f56"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제3편 제1장 전체",
+      "bookStartPages": [
+        568
+      ]
+    },
+    {
+      "code": "CRIM-S-18",
+      "subjectId": "criminal",
+      "group": "국가적 법익",
+      "title": "공무원의 직무에 관한 죄",
+      "order": 18,
+      "bookNodeIds": [
+        "f120a95a-7469-45b7-8b9d-8bca6e3a339b",
+        "9bcf3421-8dff-4b76-afa7-ec2b3fed2f58"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제3편 제2장 제1~2절",
+      "bookStartPages": [
+        576
+      ]
+    },
+    {
+      "code": "CRIM-S-19",
+      "subjectId": "criminal",
+      "group": "국가적 법익",
+      "title": "공무방해에 관한 죄",
+      "order": 19,
+      "bookNodeIds": [
+        "c09a88b5-c13d-4b15-acde-25d7121f3936"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제3편 제2장 제3절",
+      "bookStartPages": [
+        596
+      ]
+    },
+    {
+      "code": "CRIM-S-20",
+      "subjectId": "criminal",
+      "group": "국가적 법익",
+      "title": "도주·범인은닉·위증·증거인멸·무고",
+      "order": 20,
+      "bookNodeIds": [
+        "2d558ce7-96f9-41c2-9dfb-45b1bc673061",
+        "74342a73-8bc4-4c7d-8d46-022fb21001b1",
+        "4e7680ae-7554-4737-a8d7-76cc30756018"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "각론 제3편 제2장 제4~6절",
+      "bookStartPages": [
+        613
+      ]
+    },
+    {
+      "code": "POL-01",
+      "subjectId": "police",
+      "group": "제1~2장",
+      "title": "경찰의 의의·임무·이념",
+      "order": 1,
+      "bookNodeIds": [
+        "c980371a-396f-488c-a35d-3ecbe1a1f686",
+        "0df5df03-4d52-41ac-9bb3-6becce44586d"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1편 제1장 '경찰의 의의', 제2장 '경찰의 임무와 이념' 전체",
+      "bookStartPages": [
+        14
+      ]
+    },
+    {
+      "code": "POL-02",
+      "subjectId": "police",
+      "group": "제3장 경찰윤리",
+      "title": "경찰윤리의 이론·기준·강령",
+      "order": 2,
+      "bookNodeIds": [
+        "a2a4ba7b-ce91-4a00-930a-a54d143a6f0d",
+        "a3301241-b123-42c0-b184-df3280e674c7",
+        "a4afc9b4-0b0d-476d-80e9-76f22530afb9"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1~3절",
+      "bookStartPages": [
+        30
+      ]
+    },
+    {
+      "code": "POL-03",
+      "subjectId": "police",
+      "group": "제3장 경찰윤리",
+      "title": "경찰윤리 관련 법령",
+      "order": 3,
+      "bookNodeIds": [
+        "ef7f65b7-39b9-4686-a72e-9aaf154e39e4"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제4절: 행동강령, 청탁금지법, 이해충돌방지법",
+      "bookStartPages": [
+        40
+      ]
+    },
+    {
+      "code": "POL-04",
+      "subjectId": "police",
+      "group": "제4장 경찰행정법",
+      "title": "경찰행정법의 기초",
+      "order": 4,
+      "bookNodeIds": [
+        "7cca2635-a222-4ae6-88db-72474459c173"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1절 전체: 법치주의, 법원, 일반원칙, 효력",
+      "bookStartPages": [
+        68
+      ]
+    },
+    {
+      "code": "POL-05",
+      "subjectId": "police",
+      "group": "제4장 경찰행정법",
+      "title": "경찰조직법",
+      "order": 5,
+      "bookNodeIds": [
+        "9dc6ebed-21e7-4306-bfd7-5d94b23fedee"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2절 전체",
+      "bookStartPages": [
+        90
+      ]
+    },
+    {
+      "code": "POL-06",
+      "subjectId": "police",
+      "group": "제4장 경찰행정법",
+      "title": "경찰공무원의 임용·신분관계",
+      "order": 6,
+      "bookNodeIds": [
+        "634878e3-1f5a-4141-87ed-d0ea74356bef",
+        "df83bdb7-7a35-4699-919d-b7f7d2620802",
+        "0e5c02e4-64d6-419f-81ce-c1bdce55d820",
+        "7e32658a-a527-4f16-9b75-6e7ef6fc893b",
+        "303e5610-62c7-4d02-9736-be6c23511eaa",
+        "89c79a80-e809-4f03-a317-60283211735a"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제3절 01~06: 의의·분류, 임용권자, 관계의 발생·변경·소멸",
+      "bookStartPages": [
+        116
+      ]
+    },
+    {
+      "code": "POL-07",
+      "subjectId": "police",
+      "group": "제4장 경찰행정법",
+      "title": "경찰공무원의 권리·의무·책임·징계·권익보장",
+      "order": 7,
+      "bookNodeIds": [
+        "999eaa97-deb3-4a64-b962-e01f10031ee2",
+        "9d6be338-0d50-497b-a27c-bae82c85cca2",
+        "b5093585-454a-4c26-a39c-6b324027a274",
+        "4b446924-ee20-43a9-8bbe-431c186df052",
+        "af47bc06-a866-4685-a4c5-87cb656f8b17"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제3절 07~11",
+      "bookStartPages": [
+        138
+      ]
+    },
+    {
+      "code": "POL-08",
+      "subjectId": "police",
+      "group": "제4장 경찰행정법",
+      "title": "경찰작용법 일반",
+      "order": 8,
+      "bookNodeIds": [
+        "a527acf0-f73a-4e6b-a98f-5900b79a20d8",
+        "01935c5b-e072-44de-9246-ac1e36a83e14"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제4절 01~02: 서설, 행정행위, 행정입법, 그 밖의 행정작용",
+      "bookStartPages": [
+        166
+      ]
+    },
+    {
+      "code": "POL-09",
+      "subjectId": "police",
+      "group": "제4장 경찰행정법",
+      "title": "행정절차법·행정기본법",
+      "order": 9,
+      "bookNodeIds": [
+        "68f76f17-0681-406c-adc5-a0abc52c7068",
+        "7935bcfa-1005-4d2b-bf70-86bdb11780f4"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제4절 03 및 05",
+      "bookStartPages": [
+        225,
+        268
+      ]
+    },
+    {
+      "code": "POL-10",
+      "subjectId": "police",
+      "group": "제4장 경찰행정법",
+      "title": "경찰상 의무이행확보수단",
+      "order": 10,
+      "bookNodeIds": [
+        "21fad59f-4069-45f0-a75e-cc38233f4d5f"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제4절 04: 강제집행, 즉시강제, 경찰벌, 새로운 확보수단, 경찰조사",
+      "bookStartPages": [
+        242
+      ]
+    },
+    {
+      "code": "POL-11",
+      "subjectId": "police",
+      "group": "제4장 경찰행정법",
+      "title": "경찰관직무집행법·물리력 행사",
+      "order": 11,
+      "bookNodeIds": [
+        "55e6af55-0901-4540-a19e-f892cb278583",
+        "356be0b4-8b43-46b3-98b2-5922d2ba36e4"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제4절 06~07: 직무집행법, 위해성 경찰장비 사용기준, 물리력 행사의 기준·방법",
+      "bookStartPages": [
+        274
+      ]
+    },
+    {
+      "code": "POL-12",
+      "subjectId": "police",
+      "group": "제4장 경찰행정법",
+      "title": "경찰상 손해전보",
+      "order": 12,
+      "bookNodeIds": [
+        "1b63f5dc-9c04-483e-a8b6-d7f2fb388e6f",
+        "1df4479c-a1ba-493c-a007-0ea67c2f3720",
+        "66dd5808-4e64-4195-b000-8f8f5a8356c8"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제4절 08 중 1~3: 손해전보, 손해배상, 손실보상",
+      "bookStartPages": [
+        303
+      ]
+    },
+    {
+      "code": "POL-13",
+      "subjectId": "police",
+      "group": "제4장 경찰행정법",
+      "title": "행정소송·행정심판",
+      "order": 13,
+      "bookNodeIds": [
+        "3a248f76-0af8-4477-ab50-a956ad68a18a",
+        "8aa340c2-3c6f-4a24-a77b-8372a2d2daa1"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제4절 08 중 4~5",
+      "bookStartPages": [
+        328
+      ]
+    },
+    {
+      "code": "POL-14",
+      "subjectId": "police",
+      "group": "제5장 경찰관리",
+      "title": "경찰조직·인사관리",
+      "order": 14,
+      "bookNodeIds": [
+        "df2a03b9-8e3f-49f6-89ac-84386e51f662",
+        "234718cf-3d32-447c-b683-3207b4d81b6e"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1~2절",
+      "bookStartPages": [
+        366
+      ]
+    },
+    {
+      "code": "POL-15",
+      "subjectId": "police",
+      "group": "제5장 경찰관리",
+      "title": "경찰예산·장비관리",
+      "order": 15,
+      "bookNodeIds": [
+        "66793e71-5da2-4a64-98ea-f6e355867b29",
+        "4e38e0c5-36a0-4126-ab15-34d29e8b38c5"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제3~4절",
+      "bookStartPages": [
+        377
+      ]
+    },
+    {
+      "code": "POL-16",
+      "subjectId": "police",
+      "group": "제5장 경찰관리",
+      "title": "보안·문서관리·적극행정",
+      "order": 16,
+      "bookNodeIds": [
+        "96d11bc9-c094-4218-b626-2fddbfcb1892",
+        "70709909-2b0b-4af7-a402-2ee2031c2a20"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제5~6절",
+      "bookStartPages": [
+        384
+      ]
+    },
+    {
+      "code": "POL-17",
+      "subjectId": "police",
+      "group": "제6장 경찰통제와 홍보",
+      "title": "경찰통제·홍보",
+      "order": 17,
+      "bookNodeIds": [
+        "7904a3cc-7fce-47ba-aa6d-16335b01aea4"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제6장 전체: 통제 유형, 정보공개, 감찰·인권·감사·권익위, 홍보·언론구제",
+      "bookStartPages": [
+        399
+      ]
+    },
+    {
+      "code": "POL-18",
+      "subjectId": "police",
+      "group": "제7장 한국경찰의 역사와 비교 경찰론",
+      "title": "한국경찰의 역사",
+      "order": 18,
+      "bookNodeIds": [
+        "e8fab94e-fb9e-4633-b880-0915452de244",
+        "3a58817d-2928-47ab-a20b-f4fb54ab06bd"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1~2절: 갑오개혁 이전·이후",
+      "bookStartPages": [
+        435
+      ]
+    },
+    {
+      "code": "POL-19",
+      "subjectId": "police",
+      "group": "제7장 한국경찰의 역사와 비교 경찰론",
+      "title": "비교경찰론",
+      "order": 19,
+      "bookNodeIds": [
+        "ec170c2e-aea8-4fbf-85cf-3754a4a39829"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제3절 전체",
+      "bookStartPages": [
+        446
+      ]
+    },
+    {
+      "code": "POL-20",
+      "subjectId": "police",
+      "group": "제1장 생활안전 경찰",
+      "title": "범죄예방·지역사회경찰",
+      "order": 20,
+      "bookNodeIds": [
+        "93d4e891-c8a9-43e3-9e47-e86f6ac6addc",
+        "2baef243-b89c-415d-bb2d-ca76a7923145"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제1~2절 전체: 범죄예방론, 지역사회경찰·지역경찰·순찰·경비업·유실물",
+      "bookStartPages": [
+        468
+      ]
+    },
+    {
+      "code": "POL-21",
+      "subjectId": "police",
+      "group": "제1장 생활안전 경찰",
+      "title": "생활질서·총포·도검 등 안전관리",
+      "order": 21,
+      "bookNodeIds": [
+        "f03d9543-5a85-474d-8894-be968b468adf",
+        "e9b5ab29-7bc7-469f-8fc3-e4627eba14b7",
+        "856dcafb-562a-4a24-92f8-65d5c5ef932c",
+        "a76c87f2-100a-42b2-a240-eb94aca4a7b6",
+        "bc2d8715-2ee3-488a-bc3a-183f59323e64"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제3절 01~05: 풍속영업, 성매매, 사행행위, 경범죄·즉결심판, 총포·도검·화약류 등",
+      "bookStartPages": [
+        491
+      ]
+    },
+    {
+      "code": "POL-22",
+      "subjectId": "police",
+      "group": "제1장 생활안전 경찰",
+      "title": "아동·청소년 및 피해자 보호",
+      "order": 22,
+      "bookNodeIds": [
+        "e0ef9a7e-2288-4364-9fe9-1817b84594c2"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제3절 06 전체: 청소년·성보호, 성폭력, 소년경찰, 실종, 가정폭력, 아동학대, 스토킹",
+      "bookStartPages": [
+        502
+      ]
+    },
+    {
+      "code": "POL-23",
+      "subjectId": "police",
+      "group": "제2장 수사경찰",
+      "title": "수사경찰",
+      "order": 23,
+      "bookNodeIds": [
+        "e827c292-cc37-4152-b5b4-4e3382e2a90b"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제2장 전체: 범죄수사 원칙, 범죄피해자 보호법, 마약범죄 수사",
+      "bookStartPages": [
+        550
+      ]
+    },
+    {
+      "code": "POL-24",
+      "subjectId": "police",
+      "group": "제3장 교통경찰",
+      "title": "도로교통법",
+      "order": 24,
+      "bookNodeIds": [
+        "5458818a-bbf4-443c-9c54-ca00656e01e3"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제3장 01 전체",
+      "bookStartPages": [
+        570
+      ]
+    },
+    {
+      "code": "POL-25",
+      "subjectId": "police",
+      "group": "제3장 교통경찰",
+      "title": "교통사고 처리",
+      "order": 25,
+      "bookNodeIds": [
+        "63abb012-c15b-40c6-a47c-315b6c2a91dd",
+        "db10f1bd-98d4-4021-907c-6f09f324abee",
+        "cfe3f89e-01c2-4c3c-a738-2b8fabcb5922",
+        "aeac274c-2b35-48c6-ab26-7e8317206c75"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제3장 02~05: 교통사고처리 특례법, 특정범죄 가중처벌, 특례 예외·판례, 조사규칙",
+      "bookStartPages": [
+        606
+      ]
+    },
+    {
+      "code": "POL-26",
+      "subjectId": "police",
+      "group": "제4장 경비경찰",
+      "title": "경비경찰",
+      "order": 26,
+      "bookNodeIds": [
+        "5443b07e-d119-499c-9144-9358c15e4e23"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제4장 전체: 경비 원칙·유형, 재난, 다중범죄, 경호, 대테러, 작전·비상업무, 청원경찰",
+      "bookStartPages": [
+        616
+      ]
+    },
+    {
+      "code": "POL-27",
+      "subjectId": "police",
+      "group": "제5장 정보경찰",
+      "title": "정보경찰",
+      "order": 27,
+      "bookNodeIds": [
+        "bb158dc3-8e71-4548-af88-eccce98594eb"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제5장 전체: 정보 일반·순환, 집회 및 시위",
+      "bookStartPages": [
+        640
+      ]
+    },
+    {
+      "code": "POL-28",
+      "subjectId": "police",
+      "group": "제6장 안보경찰",
+      "title": "안보경찰",
+      "order": 28,
+      "bookNodeIds": [
+        "d6dede66-d887-4cae-9584-6f3b99dd1d19"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제6장 전체: 안보활동, 국가보안법, 보안관찰, 북한이탈주민, 남북교류협력",
+      "bookStartPages": [
+        656
+      ]
+    },
+    {
+      "code": "POL-29",
+      "subjectId": "police",
+      "group": "제7장 외사경찰",
+      "title": "외사경찰",
+      "order": 29,
+      "bookNodeIds": [
+        "29f1c3f0-8977-488b-a052-296a40bb6c76"
+      ],
+      "includeDescendants": true,
+      "bookLocation": "제7장 전체: 국적, 여권·사증, 출입국, 인터폴, 국제형사사법 공조, 범죄인 인도",
+      "bookStartPages": [
+        680
+      ]
+    }
+  ],
+  "pendingAreas": [
+    {
+      "code": "CRIM-P-INV",
+      "subjectId": "criminal",
+      "title": "형사소송법 수사",
+      "kind": "area_placeholder",
+      "bookNodeIds": []
+    },
+    {
+      "code": "CRIM-P-EVD",
+      "subjectId": "criminal",
+      "title": "형사소송법 증거",
+      "kind": "area_placeholder",
+      "bookNodeIds": []
+    }
+  ]
+}

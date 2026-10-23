@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ExplanationText, hasAdditionalReason } from "./Explanation";
 import {
   State,
   Selection,
@@ -41,7 +42,10 @@ import { installBookTaxonomies } from "../data/book-taxonomies";
 
 const repository = new Repository();
 function registeredProblems(items: Item[]) {
-  const groups = new Map<string, { year: number; round: string; subjectId: Item["subjectId"]; count: number }>();
+  const groups = new Map<
+    string,
+    { year: number; round: string; subjectId: Item["subjectId"]; count: number }
+  >();
   for (const item of items) {
     const { year, round } = item.source;
     const key = JSON.stringify([year, round, item.subjectId]);
@@ -50,9 +54,11 @@ function registeredProblems(items: Item[]) {
     else groups.set(key, { year, round, subjectId: item.subjectId, count: 1 });
   }
   const order = { constitution: 0, criminal: 1, police: 2 };
-  return [...groups.entries()].sort(([, a], [, b]) =>
-    b.year - a.year || a.round.localeCompare(b.round, "ko", { numeric: true }) ||
-    order[a.subjectId] - order[b.subjectId],
+  return [...groups.entries()].sort(
+    ([, a], [, b]) =>
+      b.year - a.year ||
+      a.round.localeCompare(b.round, "ko", { numeric: true }) ||
+      order[a.subjectId] - order[b.subjectId],
   );
 }
 type Page = "home" | "scope" | "quiz" | "result" | "settings";
@@ -62,7 +68,14 @@ type Pending = {
   description: string;
 };
 const labels = { exam: "출제 당시", current: "현행 기준" };
-export function App() {
+export function App({
+  onOriginalImport,
+}: {
+  onOriginalImport?: (incoming: {
+    file: File;
+    kind: "import" | "restore";
+  }) => void;
+} = {}) {
   const [namespace, setNamespace] = useState<Namespace>(
     new URLSearchParams(location.search).get("mode") === "demo"
       ? "demo"
@@ -181,9 +194,26 @@ export function App() {
     try {
       if (active)
         throw new Error("진행 중 세션을 종료한 뒤 가져오기·복구를 진행하세요.");
-      if (file.size > MAX_FILE_BYTES)
+      if (kind === "import" && file.size > MAX_FILE_BYTES)
         throw new Error("파일은 20MB 이하여야 합니다.");
-      const value = parseFile(await file.text());
+      const value =
+        kind === "import"
+          ? parseFile(await file.text())
+          : JSON.parse(await file.text());
+      if (
+        value &&
+        typeof value === "object" &&
+        ((kind === "import" &&
+          (value as { format?: string }).format ===
+            "police-original-questions") ||
+          (kind === "restore" &&
+            (value as { format?: string }).format ===
+              "police-learning-backup")) &&
+        onOriginalImport
+      ) {
+        onOriginalImport({ file, kind });
+        return;
+      }
       if (kind === "import") {
         const preview = mergeDataset(s.dataset, value);
         setPending({
@@ -231,7 +261,22 @@ export function App() {
             경찰시험 OX<small>나의 학습실</small>
           </span>
         </a>
-        <span className="privacy">내 기기에 저장</span>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            gap: 6,
+          }}
+        >
+          <a
+            style={{ fontSize: ".76em", fontWeight: 700 }}
+            href={`?view=original&mode=${namespace}`}
+          >
+            원문 기출 학습 →
+          </a>
+          <span className="privacy">내 기기에 저장</span>
+        </div>
       </header>
       {namespace === "demo" && (
         <aside className="demo-banner">
@@ -572,7 +617,9 @@ export function App() {
                   () => {
                     setSessionId(null);
                     setPending(null);
-                    setNotice(`문제 ${removed}개와 관련 학습 기록을 삭제했습니다.`);
+                    setNotice(
+                      `문제 ${removed}개와 관련 학습 기록을 삭제했습니다.`,
+                    );
                   },
                 );
               }}
@@ -690,11 +737,32 @@ export function App() {
               {s.dataset.items.length ? (
                 registeredProblems(s.dataset.items).map(([key, group]) => (
                   <p key={key}>
-                    {group.year} · {group.round} · {subjects[group.subjectId]} · 지문 {group.count}개
+                    {group.year} · {group.round} · {subjects[group.subjectId]} ·
+                    지문 {group.count}개
                   </p>
                 ))
               ) : (
                 <p>등록된 문제 데이터 없음</p>
+              )}
+            </section>
+            <section>
+              <h2>자료 처리 상태</h2>
+              {s.dataset.coverage.length ? (
+                s.dataset.coverage.map((c) => (
+                  <p key={c.id}>
+                    {c.year} · {c.round} · {subjects[c.subjectId]}:{" "}
+                    {
+                      {
+                        not_started: "처리 전",
+                        partial: "일부 처리",
+                        complete: "처리 완료",
+                      }[c.status]
+                    }{" "}
+                    / 분류 {c.classificationComplete ? "완료" : "미완료"}
+                  </p>
+                ))
+              ) : (
+                <p>자료 처리 상태 등록 전</p>
               )}
             </section>
           </>
@@ -1067,12 +1135,26 @@ function Quiz({
               <div className="correction" key={i}>
                 <div>
                   <small>틀린 표현</small>
-                  <p>{c.wrong}</p>
+                  <p>
+                    <ExplanationText
+                      text={c.wrong}
+                      highlights={j.highlights}
+                      field="correctionWrong"
+                      correctionIndex={i}
+                    />
+                  </p>
                 </div>
                 <span aria-hidden="true">→</span>
                 <div>
                   <small>올바른 표현</small>
-                  <p>{c.correct}</p>
+                  <p>
+                    <ExplanationText
+                      text={c.correct}
+                      highlights={j.highlights}
+                      field="correctionCorrect"
+                      correctionIndex={i}
+                    />
+                  </p>
                 </div>
               </div>
             ))
@@ -1080,10 +1162,27 @@ function Quiz({
             <p>
               <strong>핵심 조건·범위</strong>
               <br />
-              {j.keyPoint}
+              <ExplanationText
+                text={j.keyPoint}
+                highlights={j.highlights}
+                field="keyPoint"
+              />
             </p>
           )}
-          <p>{j.shortReason}</p>
+          {hasAdditionalReason(
+            j.shortReason,
+            j.answer === "X"
+              ? j.corrections.map((c) => c.correct)
+              : [j.keyPoint],
+          ) && (
+            <p>
+              <ExplanationText
+                text={j.shortReason}
+                highlights={j.highlights}
+                field="shortReason"
+              />
+            </p>
+          )}
           <p className="muted">
             기준일 {j.asOfDate} · 검증일{" "}
             {j.verifiedAt ? new Date(j.verifiedAt).toLocaleString() : ""}

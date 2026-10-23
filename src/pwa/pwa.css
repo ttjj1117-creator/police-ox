@@ -1,0 +1,35 @@
+.pwa-status {
+  background: #eef4f0;
+  border-bottom: 1px solid #b9d0c5;
+  color: #163e35;
+  padding: 12px clamp(16px, 3vw, 32px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
+.pwa-status p {
+  margin: 3px 0;
+  overflow-wrap: anywhere;
+}
+.pwa-status button {
+  font: inherit;
+  font-weight: 700;
+  min-height: 48px;
+  padding: 10px 16px;
+  border: 1px solid #174e43;
+  border-radius: 8px;
+  background: white;
+  color: #174e43;
+  cursor: pointer;
+}
+.pwa-status button:focus-visible {
+  outline: 3px solid #c67122;
+  outline-offset: 3px;
+}
+.pwa-status button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
