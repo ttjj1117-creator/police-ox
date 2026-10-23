@@ -41,6 +41,14 @@ export const evidenceSchema = z
     caseTextCompared: z.boolean(),
   })
   .strict();
+export const highlightSchema = z.object({
+  field: z.enum(["shortReason", "keyPoint", "correctionWrong", "correctionCorrect"]),
+  correctionIndex: z.number().int().nonnegative().optional(),
+  text,
+  kind: z.enum(["changed", "topic"]),
+}).strict();
+export type ExplanationHighlight = z.infer<typeof highlightSchema>;
+
 export const judgmentSchema = z
   .object({
     answer: z.enum(["O", "X"]).nullable(),
@@ -52,8 +60,30 @@ export const judgmentSchema = z
     keyPoint: z.string(),
     corrections: z.array(z.object({ wrong: text, correct: text }).strict()),
     evidence: z.array(evidenceSchema),
+    highlights: z.array(highlightSchema).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((j, ctx) => {
+    const used = new Map<string, Array<[number, number]>>();
+    j.highlights?.forEach((h, i) => {
+      const correction = h.field === "correctionWrong" || h.field === "correctionCorrect";
+      const fail = (message: string) => ctx.addIssue({code: "custom", path: ["highlights", i], message});
+      if (correction !== (h.correctionIndex !== undefined)) {
+        fail("정정 강조에만 correctionIndex가 필요합니다"); return;
+      }
+      const value = correction
+        ? j.corrections[h.correctionIndex!]?.[h.field === "correctionWrong" ? "wrong" : "correct"]
+        : j[h.field as "shortReason" | "keyPoint"];
+      if (value === undefined || !value.includes(h.text) || value.indexOf(h.text) !== value.lastIndexOf(h.text)) {
+        fail("강조 구절은 해당 해설에 정확히 한 번 존재해야 합니다"); return;
+      }
+      const start = value.indexOf(h.text), end = start + h.text.length;
+      const key = `${h.field}:${h.correctionIndex ?? ""}`;
+      const spans = used.get(key) ?? [];
+      if (spans.some(([s, e]) => start < e && end > s)) fail("강조 구절이 중복되거나 겹칩니다");
+      spans.push([start, end]); used.set(key, spans);
+    });
+  });
 export const taxonomySchema = z
   .object({
     id: text,

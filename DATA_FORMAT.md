@@ -89,3 +89,14 @@
 `backupSchemaVersion:1`, `appVersion`, `exportedAt`, `namespace`(`real`/`demo`), `state`로 구성됩니다. state에는 `dataset`, `attempts`, `marks`, `sessions`, `cycles`, `allocations`, `settings`가 포함됩니다. 앱에서 내보낸 파일을 사용하세요. 전체 교체만 지원하며 다른 영역 백업은 거부합니다.
 
 응답에는 attemptId/sessionId/itemId/itemRevision/basis/judgmentRevision/response/expectedAnswer/result/answeredAt을 저장합니다. 스냅샷은 세션 당시 지문과 판단을 보존합니다. 세션 간 같은 지문 응답은 허용하되 한 세션에서 같은 지문의 응답을 두 번 저장하지 않습니다. 다시 보기 키는 JSON 문자열 `[itemId,basis]`이며 판단 버전이 달라도 수동 표시를 유지합니다.
+
+## 해설 강조 (선택 필드)
+
+판단 객체의 `highlights`는 선택 배열입니다. 없으면 기존처럼 일반 텍스트로 표시합니다.
+각 항목: `{field, text, kind, correctionIndex?}`. `field`는 `shortReason`, `keyPoint`,
+`correctionWrong`, `correctionCorrect` 중 하나이며 정정 필드에만 0부터 시작하는 `correctionIndex`가 필수입니다.
+`text`는 해당 필드에 정확히 한 번 존재하는 구절, `kind`는 원문과 달라진 표현·그 정정인 `changed` 또는 핵심 주제인 `topic`입니다.
+겹치거나 존재하지 않는 구절은 가져오기에서 거부합니다. 전체 문장을 무차별 강조하거나 UI에서 숫자·단어 차이를 추정하지 않습니다.
+원문·표시문은 수정하지 않으며 답 제출 후 해설에서만 강조합니다. HTML/Markdown 삽입 방식은 사용하지 않습니다.
+강조를 추가·변경할 때도 기존 갱신 계약에 따라 item revision과 해당 judgmentRevision을 증가시킵니다.
+이전 학습 기록과 세션 스냅샷은 보존되며, 새 판단 버전의 학습 통계는 기존 계약에 따라 구분됩니다.

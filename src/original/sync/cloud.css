@@ -1,0 +1,50 @@
+.cloud-page {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cloud-page form {
+  display: grid;
+  gap: 1em;
+  max-width: 42rem;
+  margin: 1em 0;
+}
+.cloud-page input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #cad7c8;
+  padding: 0.75em;
+  border-radius: 7px;
+  background: white;
+}
+.cloud-note,
+.cloud-preview {
+  background: #edf3e8;
+  padding: 1em;
+  border-radius: 8px;
+}
+.cloud-setup {
+  border: 1px solid #d3ddce;
+  padding: 1em;
+  border-radius: 8px;
+}
+.cloud-conflict {
+  border-color: #c88d48 !important;
+  background: #fff9ee;
+}
+.cloud-page button {
+  min-height: 48px;
+  white-space: normal;
+}
+.cloud-page .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em;
+}
+.cloud-compact-status {
+  border: 0;
+  background: transparent;
+  color: #47725b;
+  font: inherit;
+  padding: 0.3em;
+  text-align: left;
+}

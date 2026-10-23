@@ -70,6 +70,7 @@ export function mergeDataset(existing: Dataset, value: unknown) {
   const merged = parseDataset({
     ...incoming,
     // Informational only: partial imports may come from an older export.
+    // Per-item, judgment and taxonomy revisions still decide conflicts below.
     datasetVersion: Math.max(existing.datasetVersion, incoming.datasetVersion),
     items,
     taxonomies,

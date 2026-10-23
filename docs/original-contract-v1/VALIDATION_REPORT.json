@@ -1,0 +1,194 @@
+{
+  "artifact": "police-codex-development-contracts",
+  "version": "1.0.0",
+  "checkedOn": "2026-10-21",
+  "scope": "개발 지시문·계약 파일 자체의 구문·참조·수량·버전 일관성. 앱 구현·실행 검증이 아님.",
+  "checks": [
+    {
+      "check": "all_json_parse",
+      "status": "passed",
+      "detail": 5
+    },
+    {
+      "check": "book_node_ids_unique",
+      "status": "passed",
+      "detail": 685
+    },
+    {
+      "check": "80_units_and_2_placeholders",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "unit_codes_unique",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "CONST_complete",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "CRIM-G_complete",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "CRIM-S_complete",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "POL_complete",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "all_book_refs_exist_and_subject_match",
+      "status": "passed",
+      "detail": 145
+    },
+    {
+      "check": "study_unit_leaf_ranges_do_not_overlap",
+      "status": "passed",
+      "detail": 523
+    },
+    {
+      "check": "pending_areas_do_not_invent_book_ids",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "profile_duration_and_score",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "subject_counts_and_scores",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "blueprint_codes_unique",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "blueprint_quotas_match_percentages_and_subjects",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "future_profiles_disabled",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "schema_local_refs_required_fields_enums",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "schema_unit_codes_equal_registry",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "schema_blueprint_codes_equal_profile",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "empty_package_matches_root_contract",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "empty_exported_at_has_timezone",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "id_patterns_accept_supported_examples",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "id_patterns_reject_drift",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "snapshot_git_blob_matches_source",
+      "status": "passed",
+      "detail": "15bfcaf939955cd15833eba5d5597f6492f10da5"
+    },
+    {
+      "check": "local_app_taxonomy_matches_github_snapshot",
+      "status": "passed",
+      "detail": null
+    },
+    {
+      "check": "documents_start_with_korean_titles",
+      "status": "passed",
+      "detail": null
+    }
+  ],
+  "limitations": [
+    "JSON Schema 표준 메타스키마 엔진 검증은 수행하지 않음. 구조·내부 참조는 정적으로 점검함.",
+    "실제 앱 코드 수정·빌드·브라우저 검증 및 실제 기출 데이터 검증은 이번 패키지 작성 범위에 포함하지 않음."
+  ],
+  "files": [
+    {
+      "path": "01_개발_Codex_프롬프트.md",
+      "sha256": "cfbe749da5bec43ac38791315406ae915ee254a901443123592434207ed743d4",
+      "bytes": 9818
+    },
+    {
+      "path": "02_공통규격.md",
+      "sha256": "a1ae017ad480ca99ab5fe38d28bdc0b5e6e0441b9145239e21af69c364432c5f",
+      "bytes": 21049
+    },
+    {
+      "path": "03_원문기출.schema.json",
+      "sha256": "0a748bc1a74aedfe9bde0e24b0ff8c46447acdcb0b0c701b16fe59738b711272",
+      "bytes": 17291
+    },
+    {
+      "path": "04_단원코드.json",
+      "sha256": "a865ce6efc9f60d3e8c03137028190ba0da5de71c2302bcd3d0bbc5208582fee",
+      "bytes": 35979
+    },
+    {
+      "path": "05_시험설정.json",
+      "sha256": "2ad0fdcc6a7b3377bd7eabf4867ceea8b06d389926c169b99833825b0b8f2715",
+      "bytes": 4641
+    },
+    {
+      "path": "06_빈_데이터셋.json",
+      "sha256": "ca1c389aa0b6170349fd501f8a65b1dd53a6f271557d4cd3479fb7a1b44951fc",
+      "bytes": 284
+    },
+    {
+      "path": "07_검증기준.md",
+      "sha256": "948de17de6bb19422d805fbf05f8c22f70e0ec1ed90c042363622cd94553cb47",
+      "bytes": 9193
+    },
+    {
+      "path": "README.md",
+      "sha256": "c932c2c6a4c6342afbb579df7fd232ced77c806a0f15a98d884bfde30ec4b578",
+      "bytes": 1999
+    },
+    {
+      "path": "reference/기존목차_snapshot.json",
+      "sha256": "b9f9234e72b1f06a39e06dcdd783a2d4c490d095d58ca65d5215466af9d6d91d",
+      "bytes": 308620
+    },
+    {
+      "path": "reference/단원체계_v1.0.md",
+      "sha256": "6a0456a6b2fd3bb61c899bd49d94bfc2db9ce54cf13ce8f446e99b5741c516b7",
+      "bytes": 17720
+    }
+  ]
+}

@@ -1,0 +1,741 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:police-original-questions:schema:1.0.0",
+  "title": "원문 기출 문항 교환 형식 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "police-original-questions"
+    },
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "packageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "packageVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "dataKind": {
+      "enum": [
+        "real",
+        "demo"
+      ]
+    },
+    "stage": {
+      "enum": [
+        "extracted",
+        "classified"
+      ]
+    },
+    "unitRegistryVersion": {
+      "const": "1.0.0"
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/question"
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/asset"
+      }
+    }
+  },
+  "required": [
+    "format",
+    "schemaVersion",
+    "packageId",
+    "packageVersion",
+    "exportedAt",
+    "dataKind",
+    "stage",
+    "unitRegistryVersion",
+    "questions",
+    "assets"
+  ],
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "examCode": {
+          "enum": [
+            "po",
+            "lieut",
+            "demo"
+          ]
+        },
+        "year": {
+          "type": "integer",
+          "minimum": 1900,
+          "maximum": 2200
+        },
+        "round": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "examName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "questionNumber": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "questionPdf": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "fileName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "pages": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "fileName",
+                "pages"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "answerPdf": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "fileName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "pages": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                },
+                "subjectColumn": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "fileName",
+                "pages",
+                "subjectColumn"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "examCode",
+        "year",
+        "round",
+        "examName",
+        "questionNumber",
+        "questionPdf",
+        "answerPdf"
+      ]
+    },
+    "block": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "text"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "statements"
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "label",
+                  "text"
+                ]
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "type",
+            "entries"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "image"
+            },
+            "assetId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "alt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "assetId",
+            "alt"
+          ]
+        }
+      ]
+    },
+    "officialAnswer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "final",
+            "provisional",
+            "missing",
+            "demo"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "single",
+            "multiple",
+            "all_correct",
+            "excluded",
+            "unresolved"
+          ]
+        },
+        "acceptedChoices": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "maxItems": 4,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "status",
+        "kind",
+        "acceptedChoices"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "single"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "acceptedChoices": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "multiple"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "acceptedChoices": {
+                "minItems": 2,
+                "maxItems": 4
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "all_correct",
+                  "excluded",
+                  "unresolved"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "acceptedChoices": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "studyUnitCode": {
+          "anyOf": [
+            {
+              "enum": [
+                "CONST-01",
+                "CONST-02",
+                "CONST-03",
+                "CONST-04",
+                "CONST-05",
+                "CONST-06",
+                "CONST-07",
+                "CONST-08",
+                "CONST-09",
+                "CONST-10",
+                "CONST-11",
+                "CONST-12",
+                "CONST-13",
+                "CONST-14",
+                "CONST-15",
+                "CONST-16",
+                "CONST-17",
+                "CONST-18",
+                "CONST-19",
+                "CRIM-G-01",
+                "CRIM-G-02",
+                "CRIM-G-03",
+                "CRIM-G-04",
+                "CRIM-G-05",
+                "CRIM-G-06",
+                "CRIM-G-07",
+                "CRIM-G-08",
+                "CRIM-G-09",
+                "CRIM-G-10",
+                "CRIM-G-11",
+                "CRIM-G-12",
+                "CRIM-S-01",
+                "CRIM-S-02",
+                "CRIM-S-03",
+                "CRIM-S-04",
+                "CRIM-S-05",
+                "CRIM-S-06",
+                "CRIM-S-07",
+                "CRIM-S-08",
+                "CRIM-S-09",
+                "CRIM-S-10",
+                "CRIM-S-11",
+                "CRIM-S-12",
+                "CRIM-S-13",
+                "CRIM-S-14",
+                "CRIM-S-15",
+                "CRIM-S-16",
+                "CRIM-S-17",
+                "CRIM-S-18",
+                "CRIM-S-19",
+                "CRIM-S-20",
+                "POL-01",
+                "POL-02",
+                "POL-03",
+                "POL-04",
+                "POL-05",
+                "POL-06",
+                "POL-07",
+                "POL-08",
+                "POL-09",
+                "POL-10",
+                "POL-11",
+                "POL-12",
+                "POL-13",
+                "POL-14",
+                "POL-15",
+                "POL-16",
+                "POL-17",
+                "POL-18",
+                "POL-19",
+                "POL-20",
+                "POL-21",
+                "POL-22",
+                "POL-23",
+                "POL-24",
+                "POL-25",
+                "POL-26",
+                "POL-27",
+                "POL-28",
+                "POL-29",
+                "CRIM-P-INV",
+                "CRIM-P-EVD"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relatedStudyUnitCodes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "CONST-01",
+              "CONST-02",
+              "CONST-03",
+              "CONST-04",
+              "CONST-05",
+              "CONST-06",
+              "CONST-07",
+              "CONST-08",
+              "CONST-09",
+              "CONST-10",
+              "CONST-11",
+              "CONST-12",
+              "CONST-13",
+              "CONST-14",
+              "CONST-15",
+              "CONST-16",
+              "CONST-17",
+              "CONST-18",
+              "CONST-19",
+              "CRIM-G-01",
+              "CRIM-G-02",
+              "CRIM-G-03",
+              "CRIM-G-04",
+              "CRIM-G-05",
+              "CRIM-G-06",
+              "CRIM-G-07",
+              "CRIM-G-08",
+              "CRIM-G-09",
+              "CRIM-G-10",
+              "CRIM-G-11",
+              "CRIM-G-12",
+              "CRIM-S-01",
+              "CRIM-S-02",
+              "CRIM-S-03",
+              "CRIM-S-04",
+              "CRIM-S-05",
+              "CRIM-S-06",
+              "CRIM-S-07",
+              "CRIM-S-08",
+              "CRIM-S-09",
+              "CRIM-S-10",
+              "CRIM-S-11",
+              "CRIM-S-12",
+              "CRIM-S-13",
+              "CRIM-S-14",
+              "CRIM-S-15",
+              "CRIM-S-16",
+              "CRIM-S-17",
+              "CRIM-S-18",
+              "CRIM-S-19",
+              "CRIM-S-20",
+              "POL-01",
+              "POL-02",
+              "POL-03",
+              "POL-04",
+              "POL-05",
+              "POL-06",
+              "POL-07",
+              "POL-08",
+              "POL-09",
+              "POL-10",
+              "POL-11",
+              "POL-12",
+              "POL-13",
+              "POL-14",
+              "POL-15",
+              "POL-16",
+              "POL-17",
+              "POL-18",
+              "POL-19",
+              "POL-20",
+              "POL-21",
+              "POL-22",
+              "POL-23",
+              "POL-24",
+              "POL-25",
+              "POL-26",
+              "POL-27",
+              "POL-28",
+              "POL-29",
+              "CRIM-P-INV",
+              "CRIM-P-EVD"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "studyStatus": {
+          "enum": [
+            "pending",
+            "confirmed"
+          ]
+        },
+        "bookUnitIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "blueprintAreaCode": {
+          "anyOf": [
+            {
+              "enum": [
+                "CONST-THEORY",
+                "CONST-RIGHTS",
+                "CRIM-GENERAL",
+                "CRIM-SPECIAL",
+                "CRIM-INV",
+                "CRIM-EVD",
+                "POL-ADMIN-LAW",
+                "POL-FOUNDATIONS",
+                "POL-ADMIN-SCIENCE",
+                "POL-ACTIVITIES",
+                "POL-HISTORY"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "blueprintStatus": {
+          "enum": [
+            "pending",
+            "confirmed"
+          ]
+        }
+      },
+      "required": [
+        "studyUnitCode",
+        "relatedStudyUnitCodes",
+        "studyStatus",
+        "bookUnitIds",
+        "blueprintAreaCode",
+        "blueprintStatus"
+      ]
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(?:(?:lieut_)?(?:const|crim|police|crime|civil)_[0-9]{4}_[1-9][0-9]*_[1-9][0-9]*|demo_(?:const|crim|police)_[1-9][0-9]*)$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gradingRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "subjectId": {
+          "enum": [
+            "constitution",
+            "criminal",
+            "police",
+            "criminology",
+            "civil_general"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "body": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/block"
+          },
+          "minItems": 1
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "number": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "blocks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/block"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "number",
+              "blocks"
+            ]
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "officialAnswer": {
+          "$ref": "#/$defs/officialAnswer"
+        },
+        "classification": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/classification"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "qa": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "textStatus": {
+              "enum": [
+                "pending",
+                "checked",
+                "hold"
+              ]
+            },
+            "answerStatus": {
+              "enum": [
+                "pending",
+                "checked",
+                "hold"
+              ]
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "textStatus",
+            "answerStatus",
+            "notes"
+          ]
+        },
+        "lifecycle": {
+          "enum": [
+            "active",
+            "retired"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "gradingRevision",
+        "subjectId",
+        "source",
+        "body",
+        "choices",
+        "officialAnswer",
+        "classification",
+        "qa",
+        "lifecycle"
+      ]
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mimeType": {
+          "enum": [
+            "image/png",
+            "image/jpeg"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "base64": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+        }
+      },
+      "required": [
+        "assetId",
+        "mimeType",
+        "sha256",
+        "base64"
+      ]
+    }
+  },
+  "$comment": "구조 검사 기준이다. ID·과목·단원·자산·버전·상태의 추가 의미 검증은 02·07번 문서에 따라 별도로 수행한다. 구조 검사를 원문·공식 정답 대조로 취급하지 않는다."
+}

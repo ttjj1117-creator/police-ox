@@ -1,0 +1,685 @@
+.learning-status,
+.review-recommendations {
+  min-width: 0;
+  --review-correct: #397d5b;
+  --review-incorrect: #bb5148;
+  --review-unknown: #c28b38;
+  --review-unanswered: #c5cdc2;
+  --review-conflict: #81709b;
+}
+.learning-status *,
+.review-recommendations * {
+  box-sizing: border-box;
+}
+.original-main .learning-status > section,
+.original-main .review-recommendations {
+  padding: 1.4em;
+}
+.learning-page-lead {
+  color: #63776b;
+  font-size: max(0.91em, 12px);
+  margin: -0.3em 0 1em;
+}
+.learning-population-note,
+.learning-description,
+.learning-scope-caption,
+.learning-filter-summary {
+  font-size: max(0.76em, 12px);
+  color: #687b6e;
+  line-height: 1.8;
+}
+.learning-population-note {
+  border-left: 3px solid #b6c9ac;
+  padding: 0.4em 1em;
+  margin: 1.2em 0;
+}
+.learning-section-heading,
+.learning-card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7em 1em;
+}
+.learning-section-heading h2,
+.original-app .learning-card-heading h3 {
+  margin: 0;
+}
+.learning-section-heading .learning-description {
+  margin: 0.5em 0 0;
+}
+.learning-filter-note,
+.learning-scope-caption {
+  color: #71806f;
+  font-size: max(0.7em, 12px);
+}
+.learning-query-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12em), 1fr));
+  gap: 1.2em;
+  margin-top: 1.2em;
+}
+.learning-applied-scope {
+  background: #edf2e8;
+  border-radius: 7px;
+  padding: 0.75em 1em;
+  font-size: max(0.74em, 12px);
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
+}
+.learning-applied-scope strong {
+  font-weight: 600;
+}
+.learning-subject-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15em), 1fr));
+  gap: 1em;
+  margin: 1em 0;
+}
+.learning-subject-card {
+  border: 1px solid #dce4d5;
+  border-radius: 11px;
+  background: #fff;
+  padding: 1.4em;
+  min-width: 0;
+}
+.learning-card-heading h3 {
+  font-size: 1.15em;
+}
+.learning-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dbe3d4;
+  color: #647a5c;
+  background: #f1f5ed;
+  font-size: max(0.65em, 12px);
+  line-height: 1.5;
+  padding: 0.25em 0.6em;
+  border-radius: 5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.learning-not-started {
+  background: #edf2fa;
+  color: #4e6b89;
+  border-color: #d4dfec;
+}
+.learning-sample,
+.learning-supplement {
+  background: #fbf2de;
+  color: #8e692e;
+  border-color: #ebdab3;
+}
+.learning-priority {
+  background: #edf3e5;
+  border-color: #d2e0c1;
+  color: #55783d;
+}
+.learning-temporary {
+  background: #f2eef8;
+  border-color: #e2d9ee;
+  color: #796791;
+}
+.learning-outside-scope {
+  background: #f5f6f1;
+  border-style: dashed;
+}
+.learning-subject-rate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5em;
+  margin: 1em 0 0.75em;
+}
+.learning-subject-rate strong {
+  font-size: 1.85em;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+}
+.learning-subject-rate > span {
+  font-size: max(0.7em, 12px);
+  color: #7b8c75;
+}
+.learning-bar {
+  display: flex;
+  width: 100%;
+  height: 0.65em;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #e7ece3;
+  box-shadow: inset 0 0 0 1px #dbe3d4;
+}
+.learning-bar-empty {
+  background: repeating-linear-gradient(
+    135deg,
+    #e9ede6,
+    #e9ede6 5px,
+    #f2f5ee 5px,
+    #f2f5ee 10px
+  );
+}
+.learning-segment {
+  display: block;
+  height: 100%;
+  flex-shrink: 0;
+}
+.learning-segment-C {
+  background: var(--review-correct);
+}
+.learning-segment-W {
+  background: var(--review-incorrect);
+}
+.learning-segment-U {
+  background: var(--review-unknown);
+}
+.learning-segment-M {
+  background: var(--review-unanswered);
+}
+.learning-segment-K {
+  background: var(--review-conflict);
+}
+.learning-order-badge {
+  color: #695785;
+  background: #f1ecf8;
+  border-color: #dcd1ec;
+}
+.learning-order-notice {
+  border: 1px solid #d8cde9;
+  border-radius: 8px;
+  background: #f6f1fb;
+  color: #66527d;
+  padding: 1em;
+  margin: 1em 0;
+}
+.learning-order-notice > strong {
+  font-size: max(0.8em, 12px);
+}
+.learning-order-notice p {
+  font-size: max(0.74em, 12px);
+  margin: 0.4em 0 0;
+  line-height: 1.8;
+}
+.learning-order-count,
+.learning-order-guidance,
+.learning-order-text {
+  color: #75608e;
+  font-size: max(0.72em, 12px);
+}
+.learning-order-count {
+  margin: 0.75em 0 0;
+}
+.learning-order-guidance {
+  flex: 1 1 100%;
+  overflow-wrap: anywhere;
+}
+.review-counts .learning-order-text {
+  font-size: inherit;
+}
+.learning-subject-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6em 1em;
+  padding: 0.9em 0;
+  border-bottom: 1px solid #edf0e9;
+  margin: 0.5em 0 0.8em;
+}
+.learning-subject-metrics > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.3em;
+}
+.learning-subject-metrics dt {
+  font-size: max(0.68em, 12px);
+  color: #72826b;
+}
+.learning-subject-metrics dd {
+  margin: 0;
+  font-size: max(0.95em, 12px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.learning-subject-wrong,
+.review-wrong-rate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45em;
+}
+.learning-subject-wrong > span:first-child {
+  font-size: max(0.76em, 12px);
+}
+.learning-subject-wrong b {
+  margin-left: 0.4em;
+  font-size: 1.1em;
+}
+.learning-small-counts,
+.learning-pending-count {
+  color: #73836c;
+  font-size: max(0.66em, 12px);
+  margin: 0.6em 0 0;
+}
+.learning-pending-count {
+  padding-top: 0.85em;
+  border-top: 1px dashed #e1e7da;
+}
+.learning-pending-count span {
+  display: block;
+  margin-top: 0.2em;
+}
+.learning-legend {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.4em 1.2em;
+  font-size: max(0.69em, 12px);
+  color: #6f8068;
+  margin: 0.8em 0 1.7em;
+}
+.learning-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.learning-dot {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 2px;
+}
+.original-app .learning-text-button {
+  border: 0;
+  background: transparent;
+  color: #356c52;
+  font-size: max(0.75em, 12px);
+  padding: 0.4em 0;
+}
+.review-recommendations .learning-scope-caption {
+  margin: 0.6em 0 0;
+}
+.review-recommendations > .learning-description {
+  margin: 0.4em 0 1.3em;
+}
+.review-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15em), 1fr));
+  gap: 1em;
+  align-items: stretch;
+}
+.review-card {
+  min-width: 0;
+  background: #fff;
+  border: 1px solid #dce5d2;
+  border-radius: 9px;
+  padding: 1.3em;
+  display: flex;
+  flex-direction: column;
+}
+.review-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75em;
+  margin-bottom: 1.1em;
+}
+.review-rank {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  color: #789268;
+  font-size: 1.4em;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.review-rank small {
+  font-size: max(0.42em, 12px);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.review-subject {
+  color: #7c8f72;
+  font-size: max(0.72em, 12px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6em;
+}
+.review-card .review-subject .learning-badge {
+  font-size: max(0.8em, 12px);
+}
+.original-app .review-card h3 {
+  font-size: 1.02em;
+  line-height: 1.65;
+  margin: 0.35em 0 1em;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+.review-wrong-rate > span:first-child {
+  color: #6d8165;
+  font-size: max(0.7em, 12px);
+}
+.review-wrong-rate strong {
+  color: #344b35;
+  font-size: 1.65em;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+.review-denominator {
+  color: #7b886f;
+  font-size: max(0.71em, 12px);
+  margin: 0.1em 0 1.2em;
+}
+.review-completion {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.4em;
+  font-size: max(0.68em, 12px);
+  color: #708465;
+  margin: 0.5em 0 1em;
+}
+.review-completion strong {
+  font-weight: 500;
+}
+.review-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em 1em;
+  font-size: max(0.72em, 12px);
+  border-top: 1px solid #edf0e9;
+  padding-top: 0.8em;
+}
+.review-counts b {
+  font-weight: 650;
+}
+.review-reason {
+  color: #77876d;
+  font-size: max(0.72em, 12px);
+  line-height: 1.85;
+  margin: 0.8em 0 1.2em;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.original-app .review-start {
+  font-size: max(0.75em, 12px);
+  padding: 0.65em 0.8em;
+  width: 100%;
+  white-space: normal;
+}
+.review-start span {
+  font-size: max(0.9em, 12px);
+}
+.review-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.1em;
+  background: #f0f5e9;
+  border: 1px dashed #d4e0c8;
+  border-radius: 9px;
+  padding: 1.4em;
+}
+.review-empty-symbol {
+  display: grid;
+  place-items: center;
+  width: 1.8em;
+  height: 1.8em;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #e0ebd5;
+  color: #66844c;
+  font-size: 1em;
+}
+.original-app .review-empty h3,
+.original-app .review-unanswered-guidance h3 {
+  font-size: max(0.9em, 12px);
+  margin: 0 0 0.4em;
+  line-height: 1.7;
+}
+.review-empty p,
+.review-unanswered-guidance p,
+.review-pending-guidance p {
+  color: #74856a;
+  font-size: max(0.75em, 12px);
+  margin: 0.3em 0;
+}
+.review-unanswered-guidance,
+.review-pending-guidance {
+  margin-top: 1.2em;
+  border-top: 1px solid #e3e9db;
+  padding-top: 1.2em;
+}
+.learning-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em;
+  margin-top: 0.6em;
+}
+.original-app .learning-inline-actions button {
+  font-size: max(0.7em, 12px);
+  background: #f6f8f1;
+}
+.review-unanswered-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18em), 1fr));
+  gap: 0.6em;
+  margin-top: 1em;
+}
+.original-app .review-unanswered-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1em;
+  text-align: left;
+  padding: 1em;
+  background: #fff;
+  font-size: max(0.75em, 12px);
+  font-weight: 500;
+}
+.review-unanswered-list button > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.review-unanswered-list small {
+  display: block;
+  font-size: max(0.85em, 12px);
+  color: #809373;
+}
+.review-unanswered-list b {
+  flex-shrink: 0;
+  font-size: max(0.85em, 12px);
+  color: #547348;
+  font-weight: 500;
+}
+.learning-row-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1em;
+  margin-top: 1.3em;
+}
+.learning-row-controls > label {
+  flex: 1 1 12em;
+  max-width: 22em;
+}
+.learning-filter-summary {
+  font-size: max(0.7em, 12px);
+  margin: 1em 0 1.4em;
+}
+.learning-filter-summary > span {
+  display: block;
+  margin-top: 0.25em;
+}
+.learning-unit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85em;
+}
+.learning-unit-row {
+  min-width: 0;
+  border: 1px solid #dfe6d8;
+  border-radius: 9px;
+  background: #fff;
+  padding: 1.25em;
+}
+.learning-unit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13em), 1fr));
+  gap: 1.1em;
+  align-items: start;
+}
+.learning-unit-group {
+  font-size: max(0.62em, 12px);
+  color: #7e9173;
+}
+.original-app .learning-unit-title h3 {
+  font-size: max(0.95em, 12px);
+  line-height: 1.65;
+  margin: 0.2em 0 0.55em;
+  overflow-wrap: anywhere;
+}
+.learning-unit-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+}
+.learning-unit-progress > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+  align-items: baseline;
+  margin-bottom: 0.7em;
+  font-size: max(0.73em, 12px);
+}
+.learning-unit-progress > div:first-child strong {
+  font-size: 1.1em;
+  font-weight: 600;
+}
+.learning-unit-progress p,
+.learning-unit-rates p {
+  font-size: max(0.64em, 12px);
+  color: #7b8a72;
+  margin: 0.5em 0 0;
+  line-height: 1.8;
+}
+.learning-unit-rates > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4em;
+}
+.learning-unit-rates > div > span:first-child {
+  font-size: max(0.67em, 12px);
+  color: #70856a;
+}
+.learning-unit-rates > div strong {
+  font-size: 1.12em;
+  font-weight: 650;
+}
+.learning-unit-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6em 1.1em;
+  border-top: 1px solid #eef1e9;
+  margin-top: 1em;
+  padding-top: 0.75em;
+}
+.learning-last-response {
+  font-size: max(0.66em, 12px);
+  color: #7c8b74;
+}
+.learning-last-response time {
+  margin-left: 0.4em;
+  font-variant-numeric: tabular-nums;
+}
+.learning-unit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55em;
+}
+.original-app .learning-unit-actions button {
+  font-size: max(0.7em, 12px);
+  padding: 0.5em 0.8em;
+  white-space: normal;
+}
+.learning-no-data {
+  font-size: max(0.65em, 12px);
+  color: #88957f;
+}
+.learning-unit-empty {
+  background: #f7f8f3;
+}
+.learning-unit-pending {
+  border-style: dashed;
+  background: #f8f9f3;
+}
+.learning-row-empty {
+  background: #f4f7ee;
+  text-align: center;
+  padding: 2em 1em;
+  border-radius: 8px;
+  font-size: max(0.8em, 12px);
+}
+.learning-active-notice > div {
+  min-width: 0;
+}
+.learning-active-notice button {
+  flex-shrink: 0;
+}
+@media (max-width: 565px) {
+  .original-main .learning-status > section,
+  .original-main .review-recommendations {
+    padding: 1em;
+  }
+  .learning-section-heading {
+    align-items: flex-start;
+  }
+  .learning-query-fields {
+    grid-template-columns: 1fr;
+    gap: 0.9em;
+  }
+  .learning-subject-grid,
+  .review-card-grid,
+  .learning-unit-grid,
+  .review-unanswered-list {
+    grid-template-columns: 1fr;
+  }
+  .learning-unit-row {
+    padding: 1em;
+  }
+  .learning-active-notice {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .learning-legend {
+    justify-content: flex-start;
+    gap: 0.6em 1em;
+  }
+  .review-empty {
+    gap: 0.7em;
+    padding: 1em;
+  }
+  .review-empty-symbol {
+    display: none;
+  }
+  .learning-unit-footer {
+    align-items: flex-start;
+  }
+  .learning-unit-actions {
+    width: 100%;
+  }
+  .learning-unit-actions > button {
+    flex: 1 1 auto;
+  }
+  .learning-row-controls > label {
+    max-width: none;
+  }
+}

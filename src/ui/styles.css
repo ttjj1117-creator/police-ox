@@ -542,6 +542,10 @@ progress {
 .correction p {
   white-space: pre-wrap;
 }
+@media (max-width: 720px) {
+  .correction { grid-template-columns: 1fr; }
+  .correction > span { transform: rotate(90deg); justify-self: start; }
+}
 .wide {
   width: 100%;
   margin-top: 20px;
@@ -691,4 +695,21 @@ summary {
   .demo-banner {
     padding: 10px 16px;
   }
+}
+
+
+/* 해설의 수동 지정 구절만 강조. 줄바꿈·글자 확대를 방해하지 않는다. */
+.explanation-highlight {
+  color: inherit;
+  background: #fff0a8;
+  font-weight: 750;
+  padding: 0;
+  border-radius: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.explanation-highlight.changed {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
 }

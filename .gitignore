@@ -3,3 +3,9 @@ dist/
 test-results/
 playwright-report/
 *.tsbuildinfo
+
+.e2e-compat/
+.env
+.env.*
+!.env.example
+.pwa-test-dist/
