@@ -17,13 +17,14 @@
 
 | 검증 | 결과 |
 |---|---|
-| Vitest 전체 | 19개 파일, **275/275 통과** |
+| Vitest 전체 | 20개 파일, **301/301 통과** |
+| 이메일 링크 수신·계정 경계 | 위 전체 결과에 포함, **26/26 통과** |
 | 순수 동기화 프로토콜 | 위 전체 결과에 포함, **42/42 통과** |
 | 동기화 저장 통합 | 위 전체 결과에 포함, **11/11 통과** |
 | 앱 TypeScript | 통과 |
 | 기존 최종화 도구 TypeScript | 통과 |
 | Vite production build·공개 산출물 검사 | 통과 |
-| Chromium 전체 | **33/33 통과** (약 1분 30초) |
+| Chromium 전체 | **35개 항목 모두 통과** (전체 실행 32개 + 준비 동작 보완 후 모의 동기화 3개 재실행) |
 | 기존 Git 작업 복제본의 `/police-ox/` production build | 통과 |
 
 이 환경에는 npm 실행 파일이 없어 package.json과 같은 설치된 도구를 번들 Node로 실행했다. 의존성은 기존 원격의 고정 lockfile을 유지했다.
@@ -40,7 +41,7 @@ node scripts/run-e2e.cjs --output=test-results --reporter=line
 
 ## 자동화의 실제 범위
 
-브라우저 33개는 기존 OX 13개, 원문 회귀 7개, 현황/추천 4개, 태블릿 4개, PWA 2개, 모의 동기화 서비스 3개다. 테스트용 도형·색상 문항과 독립된 browser context를 사용하며 실제 사용자 프로필은 수정하지 않았다.
+브라우저 35개는 기존 OX 13개, 원문 회귀 7개, 현황/추천 4개, 태블릿 4개, PWA 2개, 모의 동기화 서비스 3개, 메일 링크 수신 2개다. 테스트용 도형·색상 문항과 독립된 browser context를 사용하며 실제 사용자 프로필은 수정하지 않았다. 실제 연결 기본값이 추가되어 접혀 있던 설정 패널을 시험 준비 단계에서 여는 동작을 보완했고, 해당 모의 동기화 3개는 별도로 다시 실행해 통과했다.
 
 모의 동기화 서비스 검증은 UI·실제 fetch·계정별 IndexedDB·outbox를 통과한다. 두 독립 기기의 백업 이전, 완료 기록 전달, 응답 유실 재시도, 중복 백업, 미완료 기록 비전송, 로그아웃/다른 계정 경계, 오프라인 재실행, 응답 충돌 K와 해결, 원격 표시 해제·삭제, 활성 시험 보호와 종료 후 반영을 확인했다. 이는 실제 Supabase 검증을 의미하지 않는다.
 
@@ -50,13 +51,10 @@ PWA는 격리된 `/police-ox/` production 앱에서 manifest·아이콘·기본 
 
 시각 확인 파일은 `test-results/tablet-short-reading-800.png`, `tablet-long-reading-800.png`, `tablet-reading-200-1280.png`다.
 
-## 아직 실서비스에서 확인하지 않은 항목
+## 실제 서버에서 추가 확인한 항목
 
-Supabase 프로젝트 연결값과 실제 기기가 제공되지 않았다. 다음을 자동화 통과와 구분한다.
+개인 Free 프로젝트를 생성하고 migration을 실제 SQL Editor에서 실행했다. 두 격리 계정으로 pgTAP **24/24**를 통과했고, 검사 fixture의 롤백도 확인했다. Auth settings HTTP 200과 비로그인 RPC HTTP 401/42501, Site URL·GitHub 공개 변수 등록을 확인했다. 상세 범위는 [실서비스 검증](LIVE_CONNECTION_VERIFICATION.md)을 따른다.
 
-1. `supabase/migrations/202610230001_original_sync.sql` 실제 실행 및 `supabase/rls-tests.sql`의 PostgreSQL RLS 24개 검사 실행.
-2. 실제 인증번호 메일 수신·로그인, 실제 서로 다른 계정의 DB/Storage 접근 차단, PC↔갤탭 실제 동기화.
-3. 공개 Pages에 새 버전 반영 후 HTTPS 주소·설치·기존 데이터 이전 확인.
-4. 실제 Galaxy Tab S11 및 Samsung Internet 확인.
+아직 실제 이메일 로그인, 새 Pages 배포, 실제 Galaxy Tab S11·Samsung Internet 및 PC↔갤탭 사용 확인은 이어서 진행한다. 실제 DB 정책 검증을 메일 수신·실기기 성공으로 확대하지 않는다.
 
 서비스 계정 설정은 [웹 배포](WEB_DEPLOYMENT.md), 기존 기록 이전은 [PC→태블릿 이전](PC_TO_TABLET_MIGRATION.md), 정합성 계약은 [동기화 설계](CLOUD_SYNC.md), 화면 측정은 [태블릿 읽기 화면](TABLET_READING_LAYOUT.md)에 정리했다.

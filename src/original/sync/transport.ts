@@ -2,6 +2,7 @@ import { z } from "zod";
 import { canonical } from "../../domain/schema";
 import type { ClockSample, ReceivedEvent, SyncEvent, WireEvent } from "./types";
 import { stampClock } from "./clock";
+import type { AuthLinkTokens } from "./auth-link";
 
 export interface CloudConfig {
   url: string;
@@ -107,12 +108,54 @@ export class SupabaseTransport {
     }
     return response;
   }
-  async sendCode(email: string) {
-    await this.request("/auth/v1/otp", null, {
+  async sendCode(email: string, redirectTo?: string) {
+    const query = redirectTo
+      ? `?${new URLSearchParams({ redirect_to: redirectTo })}`
+      : "";
+    await this.request(`/auth/v1/otp${query}`, null, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, create_user: true }),
     });
+  }
+  async acceptLink(tokens: AuthLinkTokens): Promise<AuthSession> {
+    if (tokens.issuer !== `${this.config.url}/auth/v1`)
+      throw new Error(
+        "다른 동기화 서버의 로그인 링크입니다. 이 앱에서 새 로그인 메일을 요청하세요.",
+      );
+    if (
+      !Number.isSafeInteger(tokens.expiresAt) ||
+      tokens.expiresAt <= Date.now() / 1000
+    )
+      throw new Error(
+        "로그인 링크가 만료되었습니다. 새 로그인 메일을 요청하세요.",
+      );
+    // Claims are only hints until this server authenticates the access token.
+    let value: unknown;
+    try {
+      value = await (
+        await this.request("/auth/v1/user", tokens.accessToken)
+      ).json();
+    } catch (e) {
+      if (e instanceof CloudError && [400, 401, 403].includes(e.status))
+        throw new Error(
+          "로그인 링크가 만료되었거나 올바르지 않습니다. 새 로그인 메일을 요청하세요.",
+        );
+      throw e;
+    }
+    const result = z
+      .object({ id: z.string().uuid(), email: z.string().email().optional() })
+      .safeParse(value);
+    if (!result.success || result.data.id !== tokens.subject)
+      throw new Error(
+        "로그인 계정을 확인할 수 없습니다. 새 로그인 메일을 요청하세요.",
+      );
+    return {
+      access_token: tokens.accessToken,
+      refresh_token: tokens.refreshToken,
+      expires_at: tokens.expiresAt,
+      user: result.data,
+    };
   }
   private session(value: unknown): AuthSession {
     const a = authShape.parse(value);

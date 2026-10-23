@@ -2,6 +2,8 @@
 
 작성·검증일: 2026-10-23. 기준 앱은 `C:\Users\INTEL\Documents\Codex\police-ox`다.
 
+실제 연결 현황은 [실서비스 검증](LIVE_CONNECTION_VERIFICATION.md)을 따른다. 개인 Free 프로젝트를 생성하고 SQL/RLS 24개 검증, Site URL과 GitHub 공개 변수 등록을 마쳤다. 현재 Free 기본 메일의 로그인 링크도 앱에서 지원한다. 아래 절차는 재설정·다른 프로젝트 연결 시 참고한다.
+
 기존 GitHub 웹 주소를 그대로 사용한다. GitHub Pages는 앱 화면을 제공하고, Supabase는 로그인과 개인 기록을 보관한다. PC 서버를 켜 두어야 하는 구성은 아니다. Supabase 연결값이 없을 때도 로컬 학습·가져오기·전체 백업은 계속 작동한다.
 
 ## 확인한 기존 배포
@@ -23,12 +25,12 @@
 
 이 문서를 작성한 환경에서는 외부 사이트 HTTP 요청이 로컬 프록시 연결 오류로 막혔다. 후보 주소의 현재 응답이나 새 버전 공개 배포 완료를 확인한 것으로 해석하지 않는다. 배포 후 GitHub Actions의 `Deploy to GitHub Pages` 결과와 저장소 Settings → Pages에 표시되는 실제 URL을 확인한다.
 
-## 사용자가 한 번 준비할 것
+## 설정과 재현 절차
 
 1. Supabase에 로그인해 개인 기록을 보관할 프로젝트 하나를 만든다. 이미 사용하는 프로젝트가 있다면 먼저 재사용 가능 여부를 확인한다. 데이터베이스 암호는 앱이나 GitHub에 넣지 않는다.
 2. 그 프로젝트의 SQL Editor에서 `supabase/migrations/202610230001_original_sync.sql`을 실행한다. 사용자별 RLS, 동기화 RPC와 비공개 `police-sync-private` Storage 정책이 함께 설치된다. 실제 프로젝트에 적용하기 전 격리된 테스트 프로젝트에서 `supabase/rls-tests.sql`을 실행해 확인한다.
-3. Authentication → Sign In / Providers에서 Email 로그인을 켜고, Email Templates의 Magic Link 템플릿을 인증번호가 보이도록 수정한다. 예: `<p>로그인 인증번호: {{ .Token }}</p>`. 처음 가입할 때 보내는 확인 메일도 번호가 보이는지 확인한다. 앱은 이메일 주소와 받은 번호를 입력하는 방식이며, 링크 메일만 보내는 설정으로는 의도한 흐름을 확인할 수 없다. [Supabase 이메일 OTP 문서](https://supabase.com/docs/guides/auth/auth-email-passwordless)
-4. Authentication → URL Configuration의 Site URL을 실제 Pages 주소로 설정한다. 이메일 발송 제한·만료·수신 가능 주소를 확인한다. 기본 메일 발송은 제한된 테스트 용도이므로 실제 사용할 이메일에 발송 가능한지 확인하고 필요하면 사용자 SMTP를 설정한다. SMTP 비밀번호는 Supabase 관리 화면에만 입력한다. [Supabase SMTP 문서](https://supabase.com/docs/guides/auth/auth-smtp)
+3. Authentication → Sign In / Providers에서 Email 로그인과 이메일 확인을 유지한다. 현재 Free 기본 메일은 로그인 링크를 보내므로 앱의 `로그인 메일 받기`를 사용하고, 메일 링크를 앱을 사용할 브라우저에서 연다. 링크의 인증 정보는 주소에서 즉시 제거하고 서버로 계정을 검증한 뒤 로그인한다. 인증번호 템플릿을 사용할 수 있는 프로젝트에서는 `{{ .Token }}`을 넣고 기존 6~10자리 번호 입력도 사용할 수 있다. 이번 연결은 결제·추가 메일 서비스 가입 없이 기본 링크를 사용한다. [Supabase passwordless 문서](https://supabase.com/docs/guides/auth/auth-email-passwordless)
+4. Authentication → URL Configuration의 Site URL을 실제 Pages 주소로 설정한다. 기본 메일은 조직 팀원 이메일에만 발송되며 현재 공식 문서상 시간당 2통, best effort로 제한된다. 본인 Supabase 계정 이메일로 로그인하고, 제한에 걸리면 기다린 뒤 재시도한다. 이 제약을 피하려고 이메일 확인을 끄지 않는다. 별도 SMTP를 사용하기로 한 경우에만 해당 관리 화면에서 설정하며 SMTP 비밀번호는 공개 코드에 넣지 않는다. [Supabase SMTP 문서](https://supabase.com/docs/guides/auth/auth-smtp)
 5. 프로젝트의 Connect/API 설정에서 **Project URL**과 `sb_publishable_`로 시작하는 **publishable key** 두 값만 가져온다. 앱의 `계정·기기 동기화` → `동기화 서버 연결 설정`에 입력하고 `공개 연결값 저장`을 누르면 해당 브라우저에서 바로 사용할 수 있다. 같은 두 값은 아래 GitHub Repository variables에 등록하면 모든 기기에 기본 제공된다. secret key·service_role·DB 암호·관리 토큰을 입력하지 않는다. 공개용 키의 권한 경계는 서버 RLS가 담당한다. [Supabase API 키 문서](https://supabase.com/docs/guides/getting-started/api-keys)
 
 서비스 요금, 저장 용량과 메일 발송 조건은 계정에 실제 표시되는 조건을 확인한다. 영구 무료를 전제로 하지 않는다.

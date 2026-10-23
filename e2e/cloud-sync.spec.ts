@@ -202,6 +202,9 @@ async function login(page: Page, email = "owner@example.com") {
   page.setDefaultTimeout(10000);
   await page.goto("http://127.0.0.1:5173/?view=original&mode=real");
   await nav(page, "계정·기기 동기화");
+  const projectUrl = page.getByLabel("Supabase 프로젝트 URL", { exact: true });
+  if (!(await projectUrl.isVisible()))
+    await page.getByText("동기화 서버 연결 설정", { exact: true }).click();
   await page
     .getByLabel("Supabase 프로젝트 URL", { exact: true })
     .fill("https://sync.test");
@@ -213,7 +216,7 @@ async function login(page: Page, email = "owner@example.com") {
     .click();
   await page.getByLabel("이메일", { exact: true }).fill(email);
   await page
-    .getByRole("button", { name: "인증번호 받기", exact: true })
+    .getByRole("button", { name: "로그인 메일 받기", exact: true })
     .click();
   await expect(
     page.getByLabel("이메일 인증번호", { exact: true }),
@@ -358,7 +361,9 @@ test("fake service: 두 독립 기기의 문제은행·완료 기록과 재시�
   ).toBeVisible();
   await nav(b, "계정·기기 동기화");
   await b.getByLabel("이메일", { exact: true }).fill("other@example.com");
-  await b.getByRole("button", { name: "인증번호 받기", exact: true }).click();
+  await b
+    .getByRole("button", { name: "로그인 메일 받기", exact: true })
+    .click();
   await b.getByLabel("이메일 인증번호", { exact: true }).fill("123456");
   await b.getByRole("button", { name: "로그인", exact: true }).click();
   await expect(

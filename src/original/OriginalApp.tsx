@@ -110,7 +110,12 @@ export function OriginalApp({
   const cloud = useCloudSync(namespace);
   const [answerSheetOpen, setAnswerSheetOpen] = useState(false);
   const envelopeRef = useRef<Envelope | null>(null);
-  const [page, setPage] = useState<Page>("home");
+  const [page, setPage] = useState<Page>(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("auth") === "callback"
+      ? "cloud"
+      : "home",
+  );
   const [selection, setSelection] = useState<OriginalSelection>({
     ...defaultSelection,
   });
@@ -175,7 +180,16 @@ export function OriginalApp({
         install(e);
         const current = activeSession(e.state);
         setSessionId(current?.id ?? (didExpire ? expiredSession!.id : null));
-        setPage(current ? "quiz" : didExpire ? "result" : "home");
+        setPage(
+          current
+            ? "quiz"
+            : didExpire
+              ? "result"
+              : new URLSearchParams(window.location.search).get("auth") ===
+                  "callback"
+                ? "cloud"
+                : "home",
+        );
       })
       .catch((e) => alive && setError(errorMessage(e)));
     return () => {

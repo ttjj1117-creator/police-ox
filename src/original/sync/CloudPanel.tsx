@@ -173,35 +173,47 @@ export function CloudPanel({
                     disabled={disabled || active}
                   />
                 </label>
-                <button disabled={disabled || active}>인증번호 받기</button>
+                <button disabled={disabled || active}>로그인 메일 받기</button>
               </form>
+              <p>
+                추가 결제 없이 기본 로그인 링크를 사용할 수 있습니다. 메일의
+                로그인 링크를 PC나 갤탭에서 이 앱을 사용할 브라우저로 여세요.
+              </p>
               {sent && (
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void run(() => cloud.controller.verify(email, code));
-                  }}
-                >
-                  <label className="original-field">
-                    이메일 인증번호
-                    <input
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      pattern="[0-9]{6,10}"
-                      required
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      disabled={disabled || active}
-                    />
-                  </label>
-                  <button className="primary" disabled={disabled || active}>
-                    로그인
-                  </button>
-                </form>
+                <>
+                  <p role="status">
+                    로그인 메일을 보냈습니다. 메일의 링크를 누르세요. 인증번호가
+                    포함된 메일을 받은 경우 아래 번호 입력도 사용할 수 있습니다.
+                  </p>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void run(() => cloud.controller.verify(email, code));
+                    }}
+                  >
+                    <label className="original-field">
+                      이메일 인증번호
+                      <input
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        pattern="[0-9]{6,10}"
+                        placeholder="메일에 번호가 있을 때만 입력"
+                        required
+                        value={code}
+                        onChange={(e) => setCode(e.target.value)}
+                        disabled={disabled || active}
+                      />
+                    </label>
+                    <button className="primary" disabled={disabled || active}>
+                      로그인
+                    </button>
+                  </form>
+                </>
               )}
               <p>
-                메일이 오지 않거나 번호가 만료되면 잠시 후 새 번호를 요청하세요.
-                로그인이 되지 않아도 기존 로컬 기록은 보관됩니다.
+                메일이 오지 않으면 스팸함을 확인하세요. 링크나 번호가 만료되면
+                잠시 후 새 로그인 메일을 요청하세요. 로그인이 되지 않아도 기존
+                로컬 기록은 보관됩니다.
               </p>
             </section>
           )}

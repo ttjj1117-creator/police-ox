@@ -83,6 +83,7 @@ create policy sync_objects_immutable_delete on storage.objects as restrictive fo
 
 create or replace function public.police_sync_push(p_event jsonb)
 returns jsonb language plpgsql security definer set search_path = '' as $$
+<<sync_request>>
 declare
   owner_id uuid := auth.uid();
   head public.police_sync_heads%rowtype;
@@ -109,7 +110,7 @@ begin
   if path is null or split_part(path,'/',1) <> owner_id::text or split_part(path,'/',2) <> 'real' or path like '%..%' or (p_event->>'bodySha256') !~ '^[a-f0-9]{64}$' or (p_event->>'bodySha256') is null or p_event->>'bodyBytes' is null or (p_event->>'bodyBytes')::bigint not between 1 and 1048576 then raise exception 'invalid_private_body_reference' using errcode = '42501'; end if;
   insert into public.police_sync_heads(user_id) values(owner_id) on conflict do nothing;
   select * into head from public.police_sync_heads where user_id = owner_id for update;
-  select * into existing from public.police_sync_events where user_id = owner_id and police_sync_events.event_id = police_sync_push.event_id;
+  select * into existing from public.police_sync_events where user_id = owner_id and police_sync_events.event_id = sync_request.event_id;
   if found then
     if existing.wire <> p_event then raise exception 'event_id_content_conflict' using errcode = '23505'; end if;
     return jsonb_build_object('seq',existing.seq,'bankVersion',existing.bank_version,'markVersion',existing.mark_version,'duplicate',true,'serverTime',clock_timestamp());
@@ -124,14 +125,14 @@ begin
   if kind = 'mark' then
     question_id := p_event->>'markQuestionId';
     if question_id is null or length(question_id) not between 1 and 300 or (p_event->>'baseMarkVersion') is null then raise exception 'invalid_mark'; end if;
-    select version into mark_version from public.police_sync_marks where user_id = owner_id and police_sync_marks.question_id = police_sync_push.question_id;
+    select version into mark_version from public.police_sync_marks where user_id = owner_id and police_sync_marks.question_id = sync_request.question_id;
     mark_version := coalesce(mark_version,0);
     if (p_event->>'baseMarkVersion')::bigint <> mark_version then raise exception 'mark_version_conflict' using errcode = '40001'; end if;
     mark_version := mark_version + 1;
     insert into public.police_sync_marks(user_id,question_id,version,event_id) values(owner_id,question_id,mark_version,event_id)
       on conflict on constraint police_sync_marks_pkey do update set version = excluded.version, event_id = excluded.event_id;
   elsif p_event->>'baseMarkVersion' is not null or p_event->>'markQuestionId' is not null then raise exception 'unexpected_mark_version'; end if;
-  update public.police_sync_heads set cursor = head.cursor + 1, bank_version = police_sync_push.bank_version where user_id = owner_id;
+  update public.police_sync_heads set cursor = head.cursor + 1, bank_version = sync_request.bank_version where user_id = owner_id;
   insert into public.police_sync_events(user_id,event_id,device_id,device_sequence,seq,bank_version,mark_version,wire)
     values(owner_id,event_id,device_id,device_sequence,head.cursor + 1,bank_version,mark_version,p_event);
   return jsonb_build_object('seq',head.cursor+1,'bankVersion',bank_version,'markVersion',mark_version,'duplicate',false,'serverTime',clock_timestamp());

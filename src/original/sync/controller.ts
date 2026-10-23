@@ -27,6 +27,14 @@ import {
 } from "./transport";
 import type { ReceivedEvent, SyncEvent } from "./types";
 import { usableClock } from "./clock";
+import {
+  authReturnUrl,
+  captureAuthRedirect,
+  type AuthRedirect,
+} from "./auth-link";
+
+// Runs synchronously during module evaluation, before React and startup IO.
+const incomingAuthRedirect = captureAuthRedirect();
 
 export interface CloudView {
   ready: boolean;
@@ -64,7 +72,12 @@ export class CloudController {
   private enabled = true;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running: Promise<void> | null = null;
-  constructor(store = new SyncAccountStore(), transport?: SupabaseTransport) {
+  private initialization: Promise<void> | null = null;
+  constructor(
+    store = new SyncAccountStore(),
+    transport?: SupabaseTransport,
+    private authRedirect: AuthRedirect = incomingAuthRedirect,
+  ) {
     this.store = store;
     if (transport) this.transport = transport;
   }
@@ -83,12 +96,15 @@ export class CloudController {
   private authKey() {
     return `sync:auth:${this.view.config!.url}`;
   }
-  async init(env: Record<string, unknown> = {}) {
+  init(env: Record<string, unknown> = {}) {
+    return (this.initialization ??= this.initialize(env));
+  }
+  private async initialize(env: Record<string, unknown>) {
     try {
       const config =
         this.transport?.config ??
-        cloudConfig(env) ??
-        (await this.store.getValue<CloudConfig>("sync:public-config"));
+        (await this.store.getValue<CloudConfig>("sync:public-config")) ??
+        cloudConfig(env);
       this.transport = config
         ? (this.transport ??
           new SupabaseTransport(
@@ -100,7 +116,6 @@ export class CloudController {
         : null;
       this.emit({
         config,
-        ready: true,
         message: config
           ? "로그인하여 기기 간 기록을 공유하세요."
           : "동기화 설정 필요 · 이 기기의 학습은 계속 사용할 수 있습니다.",
@@ -110,9 +125,25 @@ export class CloudController {
         if (auth?.user?.id && auth.access_token && auth.refresh_token) {
           this.emit({ auth, ownerId: this.owner(auth) });
           await this.reload();
-          this.schedule();
         }
       }
+      if (this.authRedirect.kind === "error")
+        throw new Error(this.authRedirect.message);
+      if (this.authRedirect.kind === "session") {
+        if (!this.transport)
+          throw new Error(
+            "동기화 서버 설정을 확인한 뒤 새 로그인 메일을 요청하세요.",
+          );
+        const auth = await this.transport.acceptLink(this.authRedirect.tokens);
+        await this.establishSession(auth);
+        this.emit({
+          message:
+            "이메일 링크로 로그인했습니다. 기존 PC 기록은 미리보기 후 직접 연결할 수 있습니다.",
+          error: "",
+        });
+      }
+      this.emit({ ready: true });
+      this.schedule();
     } catch (e) {
       this.emit({
         ready: true,
@@ -138,18 +169,39 @@ export class CloudController {
   }
   async sendCode(email: string) {
     if (!this.transport) throw new Error("동기화 연결 설정이 필요합니다.");
-    await this.transport.sendCode(email);
+    await this.transport.sendCode(
+      email.trim(),
+      typeof window === "undefined"
+        ? undefined
+        : authReturnUrl(window.location.href),
+    );
     this.emit({
       error: "",
       message:
-        "이메일의 일회용 인증번호를 입력하세요. 메일 템플릿에 인증번호가 설정되어 있어야 합니다.",
+        "로그인 메일을 보냈습니다. 메일의 로그인 링크를 이 앱을 사용할 브라우저에서 여세요. 인증번호가 함께 온 경우 번호로도 로그인할 수 있습니다.",
     });
   }
   async verify(email: string, code: string) {
     if (!this.transport) throw new Error("동기화 연결 설정이 필요합니다.");
-    const auth = await this.transport.verify(email, code);
-    this.emit({ auth, ownerId: this.owner(auth), error: "" });
+    const auth = await this.transport.verify(email.trim(), code.trim());
+    await this.establishSession(auth);
+  }
+  private async establishSession(auth: AuthSession) {
+    if (this.running) throw new Error("동기화가 끝난 뒤 다시 로그인하세요.");
+    const stored = await this.store.getValue<AuthSession>(this.authKey());
+    const previous = stored?.user?.id ? stored : this.view.auth;
+    if (previous && previous.user.id !== auth.user.id)
+      throw new Error(
+        "다른 계정이 로그인되어 있습니다. 진행 중 학습을 종료하고 로그아웃한 뒤 새 로그인 메일을 요청하세요.",
+      );
+    // Authentication never moves anonymous data into the account bank/outbox.
+    // A link bypasses disabled controls, so enforce this on durable data.
+    if (!previous && activeSession(await this.store.readUnlinked()))
+      throw new Error(
+        "이 기기에 진행 중인 학습이 있습니다. 먼저 학습을 종료한 뒤 새 로그인 메일을 요청하세요.",
+      );
     await this.store.setValue(this.authKey(), auth);
+    this.emit({ auth, ownerId: this.owner(auth), error: "" });
     await this.reload();
     this.schedule();
   }
@@ -347,9 +399,7 @@ export class CloudController {
       });
     return this.running;
   }
-  async importPreview(
-    value?: unknown,
-  ): Promise<{
+  async importPreview(value?: unknown): Promise<{
     state: OriginalState;
     source?: unknown;
     questions: number;
