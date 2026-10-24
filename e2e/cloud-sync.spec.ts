@@ -538,6 +538,7 @@ test("fake service: 원격 삭제·표시 해제는 오래된 기기에서 되�
   const target = original.questions.findIndex(
     (q: any) => q.id === backup.original.data.questions[0].id,
   );
+  await a.getByRole("button", { name: /^답안표 / }).click();
   await a
     .getByRole("button", { name: `${target + 1}번 문항으로 이동`, exact: true })
     .click();

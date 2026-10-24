@@ -2,8 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 
-// Frozen from isolated Chromium before any tablet CSS, settings.fontScale = 1.
-const baseline = { body: 15.2, passage: 14.4, choice: 13.92 };
+// Product requirement: the text the user reads is 22 CSS px at fontScale=1.
 const viewports = [
   { width: 800, height: 1280 },
   { width: 960, height: 1536 },
@@ -43,9 +42,9 @@ async function fontMetrics(page: Page) {
     const size = (selector: string) =>
       parseFloat(getComputedStyle(document.querySelector(selector)!).fontSize);
     return {
-      body: size(".original-question > .original-content"),
-      passage: size(".original-question > .original-statements p"),
-      choice: size(".original-choices button .original-content"),
+      body: size(".original-question .original-content"),
+      passage: size(".original-question .original-statements p"),
+      choice: size(".original-choice-text .original-content"),
     };
   });
 }
@@ -100,7 +99,11 @@ function wideTestPng() {
     chunk("IEND", Buffer.alloc(0)),
   ]);
 }
-function layoutPackage() {
+const ordinaryStem =
+  "중립적인 화면 확인 자료입니다. 안내판에는 파란 상자와 노란 원이 나란히 있습니다. 아래 네 설명을 읽고 보인 표시와 같은 구성을 고르세요. 실제 시험이나 법률에 관한 문항은 아닙니다.";
+const ordinaryChoice =
+  "파란 상자의 오른쪽에 노란 원이 있고 그 아래에는 작은 초록 삼각형이 있습니다. 세 표시의 순서와 모양을 확인해 보세요.";
+function layoutPackage(ordinary = false) {
   const image = wideTestPng();
   const questions = [201, 202].map((number) => ({
     id: `demo_const_${number}`,
@@ -162,6 +165,21 @@ function layoutPackage() {
     },
     lifecycle: "active",
   }));
+  if (ordinary) {
+    for (const q of questions) {
+      q.body = [
+        { type: "text", text: ordinaryStem },
+        {
+          type: "statements",
+          entries: [
+            { label: "㉠", text: "표시 순서는 파란 상자, 노란 원입니다." },
+          ],
+        },
+      ];
+      for (const c of q.choices)
+        c.blocks = [{ type: "text", text: ordinaryChoice }];
+    }
+  }
   return {
     format: "police-original-questions",
     schemaVersion: "1.0.0",
@@ -182,13 +200,13 @@ function layoutPackage() {
     ],
   };
 }
-async function beginLongDemo(page: Page, fontScale = 1) {
+async function beginLongDemo(page: Page, fontScale = 1, ordinary = false) {
   await page.goto("/?view=original&mode=demo");
   await page.getByRole("button", { name: "데이터·설정", exact: true }).click();
   await page.getByLabel("문제 JSON 가져오기", { exact: true }).setInputFiles({
     name: "TABLET_LAYOUT_ONLY.json",
     mimeType: "application/json",
-    buffer: Buffer.from(JSON.stringify(layoutPackage())),
+    buffer: Buffer.from(JSON.stringify(layoutPackage(ordinary))),
   });
   await page
     .getByRole("button", { name: "확인하고 적용", exact: true })
@@ -209,49 +227,165 @@ async function beginLongDemo(page: Page, fontScale = 1) {
   ).toBeVisible();
 }
 
-test("읽기 글씨는 측정 기준 대비 8~12% 확대되고 7개 화면에서 단일/이중 영역·48px 조작을 유지한다", async ({
+async function noPageOverflow(page: Page) {
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth + 1,
+    ),
+  ).toBe(true);
+}
+async function activeSession(page: Page) {
+  return (await stored(page)).state.sessions.find(
+    (s: any) => s.status === "active",
+  );
+}
+
+test("실제 읽기 글씨 22px·단일 열·기본 접힘 답안표와 48px 번호를 7개 화면에서 유지한다", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await beginDemo(page);
-  const values: unknown[] = [];
+  const measured: unknown[] = [];
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     const metrics = await fontMetrics(page);
-    values.push({ viewport, ...metrics });
-    for (const key of ["body", "passage", "choice"] as const) {
-      expect(metrics[key] / baseline[key]).toBeGreaterThanOrEqual(1.08);
-      expect(metrics[key] / baseline[key]).toBeLessThanOrEqual(1.12);
+    measured.push({ viewport, ...metrics });
+    for (const value of Object.values(metrics)) {
+      expect(value).toBeGreaterThanOrEqual(viewport.width >= 800 ? 21 : 20);
+      expect(value).toBeLessThanOrEqual(23);
     }
+    expect(metrics.choice).toBeCloseTo(metrics.body, 2);
+    expect(metrics.passage).toBeCloseTo(metrics.body, 2);
     await expect(page.locator(".original-header")).toBeHidden();
     await expect(page.locator(".original-nav")).toBeHidden();
-    await expect(page.locator(".quiz-answer-shell")).toHaveAttribute(
-      "data-overlay",
-      viewport.width >= 1024 ? "false" : "true",
-    );
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
+    const sheet = page.locator(".quiz-answer-shell");
+    await expect(sheet).toHaveAttribute("data-overlay", "true");
+    await expect(sheet).toBeHidden();
+    await noPageOverflow(page);
+    const cardBefore = (await page
+      .locator(".original-question")
+      .boundingBox())!;
+    if (viewport.width === 1280 || viewport.width === 1536)
+      expect(cardBefore.width / viewport.width).toBeGreaterThanOrEqual(0.94);
     for (const selector of [
-      ".original-choices button",
+      ".original-choice-button",
       ".original-movement button",
       ".original-finish button",
       ".quiz-reading-menu > button",
     ]) {
-      const box = await page.locator(selector).first().boundingBox();
-      expect(box!.width).toBeGreaterThanOrEqual(48);
-      expect(box!.height).toBeGreaterThanOrEqual(48);
+      const box = (await page.locator(selector).first().boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(48);
+      expect(box.height).toBeGreaterThanOrEqual(48);
     }
+    const trigger = page.getByRole("button", { name: /^답안표 \d+\/\d+$/ });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await expect(sheet).toBeVisible();
+    expect(
+      (await page.locator(".original-question").boundingBox())!.width,
+    ).toBeCloseTo(cardBefore.width, 1);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+    await expect(trigger).toBeFocused();
   }
   expect((await stored(page)).state.settings.fontScale).toBe(1);
-  console.log("TABLET_COMPUTED_FONT_SIZES", JSON.stringify(values));
+  console.log("TABLET_PATCH_COMPUTED", JSON.stringify(measured));
+});
+
+test("보통 분량 중립 fixture의 발문·네 선택지를 가로 화면의 넓은 읽기 열에서 함께 확인한다", async ({
+  page,
+}) => {
+  expect(ordinaryStem.length).toBeGreaterThanOrEqual(80);
+  expect(ordinaryStem.length).toBeLessThanOrEqual(120);
+  expect(ordinaryChoice.length).toBeGreaterThanOrEqual(60);
+  expect(ordinaryChoice.length).toBeLessThanOrEqual(80);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await beginLongDemo(page, 1, true);
+  for (const viewport of [
+    { width: 1280, height: 800 },
+    { width: 1536, height: 960 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.evaluate(() => scrollTo(0, 0));
+    await expect(
+      page.locator(".original-question .original-content").first(),
+    ).toHaveText(ordinaryStem);
+    await expect(page.locator(".original-choice-text")).toHaveCount(4);
+    for (const row of await page.locator(".original-choice-text").all())
+      await expect(row).toHaveText(ordinaryChoice);
+    const bounds = await page
+      .locator(".original-choice-row")
+      .last()
+      .boundingBox();
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height);
+    await noPageOverflow(page);
+    await page.screenshot({
+      path: `test-results/tablet-patch-ordinary-${viewport.width}.png`,
+      fullPage: true,
+    });
+  }
 });
 
 test.describe("터치·긴 문제·회전", () => {
   test.use({ hasTouch: true });
-  test("긴 중립 문장·보기·넓은 그림과 마지막 선택지·피드백을 가리지 않는다", async ({
+  test("번호만 답 선택하고 문장 탭·드래그는 선택하지 않으며 일반 학습 제출·잠금을 유지한다", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await beginLongDemo(page, 1, true);
+    const buttons = page.locator(".original-choice-button");
+    const firstText = page.locator(".original-choice-text").first();
+    await expect(firstText.locator("button,input,label")).toHaveCount(0);
+    for (const button of await buttons.all()) {
+      expect((await button.innerText()).trim().length).toBeLessThanOrEqual(2);
+      await expect(button.locator(".original-content,img")).toHaveCount(0);
+      await expect(button).toHaveAttribute("aria-pressed", "false");
+    }
+    await firstText.tap();
+    const textBox = (await firstText.boundingBox())!;
+    await page.mouse.move(textBox.x + 10, textBox.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(textBox.x + 100, textBox.y + 35, { steps: 8 });
+    await page.mouse.up();
+    await page.locator(".original-statements").first().tap();
+    for (const button of await buttons.all())
+      await expect(button).toHaveAttribute("aria-pressed", "false");
+    await expect(
+      page.getByRole("button", { name: "답 제출", exact: true }),
+    ).toBeDisabled();
+    await page.keyboard.press("2");
+    await expect(
+      page.getByRole("button", { name: "2번 선택", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect((await stored(page)).state.attempts).toHaveLength(0);
+    await page.getByRole("button", { name: "4번 선택", exact: true }).tap();
+    await expect(
+      page.getByRole("button", { name: "4번 선택", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await firstText.tap();
+    await expect(
+      page.getByRole("button", { name: "4번 선택", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "답 제출", exact: true }).click();
+    await expect
+      .poll(async () => (await stored(page)).state.attempts.length)
+      .toBe(1);
+    expect((await stored(page)).state.attempts[0].response).toBe(4);
+    for (const button of await buttons.all())
+      await expect(button).toBeDisabled();
+    await page.keyboard.press("1");
+    expect((await stored(page)).state.attempts[0].response).toBe(4);
+    await page.getByRole("button", { name: "다음 문항", exact: true }).click();
+    await page
+      .getByRole("button", { name: "모르겠음 제출", exact: true })
+      .click();
+    await expect
+      .poll(async () => (await stored(page)).state.attempts.length)
+      .toBe(2);
+    expect((await stored(page)).state.attempts[1].result).toBe("unknown");
+  });
+
+  test("긴 중립 문장·의미 있는 줄바꿈·보기·넓은 그림과 마지막 선택지·피드백을 가리지 않는다", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 800, height: 1280 });
@@ -267,11 +401,26 @@ test.describe("터치·긴 문제·회전", () => {
           element.width <= element.parentElement!.clientWidth,
       ),
     ).toBe(true);
+    await image.tap();
+    await expect(
+      page.getByRole("button", { name: "1번 선택", exact: true }),
+    ).toHaveAttribute("aria-pressed", "false");
+    const stem = page.locator(".original-question .original-content").first();
+    await expect(stem).toContainText("㉠·㉡");
+    await expect(stem).toContainText(
+      "TEST_REFERENCE_2026_01234567890123456789",
+    );
+    expect(
+      await stem.evaluate((el) => getComputedStyle(el).whiteSpace),
+    ).toMatch(/pre/);
     await page.screenshot({
       path: "test-results/tablet-long-reading-800.png",
       fullPage: true,
     });
     await page.getByRole("button", { name: "4번 선택", exact: true }).click();
+    await page
+      .getByRole("button", { name: "답 제출", exact: true })
+      .scrollIntoViewIfNeeded();
     await expect(
       page.getByRole("button", { name: "답 제출", exact: true }),
     ).toBeInViewport();
@@ -280,80 +429,86 @@ test.describe("터치·긴 문제·회전", () => {
     await page.locator(".original-feedback").scrollIntoViewIfNeeded();
     expect(
       await page.locator(".original-feedback").evaluate((element) => {
-        const rect = element.getBoundingClientRect();
-        return rect.bottom <= innerHeight && rect.top >= 0;
+        const r = element.getBoundingClientRect();
+        return r.bottom <= innerHeight && r.top >= 0;
       }),
     ).toBe(true);
     await page.getByRole("button", { name: "다음 문항", exact: true }).click();
     await expect(
-      page.locator(".original-question > .original-content"),
+      page.locator(".original-question .original-content").first(),
     ).toContainText("202");
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
+    await noPageOverflow(page);
     await page.screenshot({
       path: "test-results/tablet-short-reading-800.png",
       fullPage: true,
     });
   });
-  test("200% 사용자 설정은 유지되고 가로에서도 접는 답안표와 전체 문장을 사용할 수 있다", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await beginLongDemo(page, 2);
-    await expect(page.locator(".quiz-answer-shell")).toHaveAttribute(
-      "data-overlay",
-      "true",
-    );
-    await expect(
-      page.getByRole("button", { name: "답안표 0/2", exact: true }),
-    ).toBeVisible();
-    const metrics = await fontMetrics(page);
-    for (const key of ["body", "passage", "choice"] as const)
-      expect(metrics[key]).toBeCloseTo(baseline[key] * 1.1 * 2, 2);
-    expect((await stored(page)).state.settings.fontScale).toBe(2);
-    for (const viewport of [
-      { width: 1280, height: 800 },
-      { width: 640, height: 900 },
-      { width: 360, height: 800 },
-    ]) {
-      await page.setViewportSize(viewport);
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
-        ),
-      ).toBe(true);
-      await page
-        .getByRole("button", { name: "4번 선택", exact: true })
-        .scrollIntoViewIfNeeded();
+
+  for (const fontScale of [1.25, 1.5, 2]) {
+    test(`${fontScale * 100}% 저장값은 유지되고 한 번만 적용하며 가로·분할창·작은 화면에서 끝까지 읽는다`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await beginLongDemo(page, fontScale);
+      const metrics = await fontMetrics(page);
+      for (const size of Object.values(metrics))
+        expect(size).toBeCloseTo(22 * fontScale, 2);
+      expect((await stored(page)).state.settings.fontScale).toBe(fontScale);
+      await expect(page.locator(".quiz-answer-shell")).toBeHidden();
+      for (const viewport of [
+        { width: 1280, height: 800 },
+        { width: 640, height: 900 },
+        { width: 360, height: 800 },
+      ]) {
+        await page.setViewportSize(viewport);
+        await noPageOverflow(page);
+        const values = await fontMetrics(page);
+        const expected = (viewport.width <= 480 ? 20 : 22) * fontScale;
+        for (const size of Object.values(values))
+          expect(size).toBeCloseTo(expected, 2);
+        await page
+          .getByRole("button", { name: "4번 선택", exact: true })
+          .scrollIntoViewIfNeeded();
+        await expect(
+          page.getByRole("button", { name: "4번 선택", exact: true }),
+        ).toBeInViewport();
+        await page
+          .getByRole("button", { name: "답 제출", exact: true })
+          .scrollIntoViewIfNeeded();
+        await expect(
+          page.getByRole("button", { name: "답 제출", exact: true }),
+        ).toBeInViewport();
+      }
+      await page.reload();
       await expect(
-        page.getByRole("button", { name: "4번 선택", exact: true }),
+        page.getByRole("button", { name: "1번 선택", exact: true }),
       ).toBeVisible();
-      await page
-        .getByRole("button", { name: "답 제출", exact: true })
-        .scrollIntoViewIfNeeded();
-      await expect(
-        page.getByRole("button", { name: "답 제출", exact: true }),
-      ).toBeInViewport();
-    }
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.screenshot({
-      path: "test-results/tablet-reading-200-1280.png",
-      fullPage: true,
+      expect((await stored(page)).state.settings.fontScale).toBe(fontScale);
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.screenshot({
+        path: `test-results/tablet-reading-${fontScale * 100}-1280.png`,
+        fullPage: true,
+      });
     });
-  });
-  test("100문항 답안표의 열기·포커스·문항 이동·닫기와 화면 회전이 답안·마감 시각을 보존한다", async ({
+  }
+
+  test("100문항 답안표의 이동·검토·닫기·포커스와 회전·글씨 조절이 답안·마감 시각을 보존한다", async ({
     page,
   }) => {
     await page.clock.install({ time: new Date("2026-10-23T01:00:00.000Z") });
     await page.setViewportSize({ width: 800, height: 1280 });
     await beginDemo(page, true);
     await page.getByRole("button", { name: "1번 선택", exact: true }).click();
-    const first = (await stored(page)).state.sessions.find(
-      (session: any) => session.status === "active",
-    );
+    await expect
+      .poll(
+        async () =>
+          Object.values((await activeSession(page)).responses).filter(
+            (x) => x != null,
+          ).length,
+      )
+      .toBe(1);
+    const first = await activeSession(page);
+    await page.getByRole("button", { name: "검토 표시", exact: true }).click();
     const toggle = page.getByRole("button", {
       name: "답안표 1/100",
       exact: true,
@@ -366,20 +521,19 @@ test.describe("터치·긴 문제·회전", () => {
     ).toBeFocused();
     const answerButtons = sheet.locator(".original-answer-map button");
     await expect(answerButtons).toHaveCount(100);
-    const answerBoxes = await answerButtons.evaluateAll((buttons) =>
+    await expect(answerButtons.first()).toHaveClass(/filled/);
+    await expect(answerButtons.first()).toContainText("◇");
+    for (const box of await answerButtons.evaluateAll((buttons) =>
       buttons.map((button) => {
-        const rect = button.getBoundingClientRect();
-        return { width: rect.width, height: rect.height };
+        const r = button.getBoundingClientRect();
+        return { width: r.width, height: r.height };
       }),
-    );
-    for (const box of answerBoxes) {
+    )) {
       expect(box.width).toBeGreaterThanOrEqual(48);
       expect(box.height).toBeGreaterThanOrEqual(48);
     }
     await page.keyboard.press("Shift+Tab");
-    await expect(
-      sheet.locator(".original-answer-map button").last(),
-    ).toBeFocused();
+    await expect(answerButtons.last()).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
     await expect(toggle).toBeFocused();
@@ -388,36 +542,55 @@ test.describe("터치·긴 문제·회전", () => {
       .getByRole("button", { name: "2번 문항으로 이동", exact: true })
       .click();
     await expect(sheet).toBeHidden();
-    await expect
-      .poll(
-        async () =>
-          (await stored(page)).state.sessions.find(
-            (session: any) => session.id === first.id,
-          ).index,
-      )
-      .toBe(1);
+    await expect.poll(async () => (await activeSession(page)).index).toBe(1);
+    await page.getByRole("button", { name: "2번 선택", exact: true }).click();
+    await page.getByRole("button", { name: "3번 선택", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "3번 선택", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    const beforeTypeChange = await activeSession(page);
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.locator(".quiz-answer-shell")).toHaveAttribute(
       "data-overlay",
-      "false",
+      "true",
     );
+    await expect(page.locator(".quiz-answer-shell")).toBeHidden();
+    await page
+      .getByRole("button", { name: "글씨 키우기", exact: true })
+      .click();
+    await expect
+      .poll(async () => (await stored(page)).state.settings.fontScale)
+      .toBe(1.25);
+    await expect(page.getByLabel("현재 글씨 크기", { exact: true })).toHaveText(
+      "125%",
+    );
+    expect((await fontMetrics(page)).body).toBeCloseTo(27.5, 2);
+    await expect(
+      page.getByRole("button", { name: "3번 선택", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect((await activeSession(page)).deadlineAt).toBe(first.deadlineAt);
+    expect((await activeSession(page)).responses).toEqual(
+      beforeTypeChange.responses,
+    );
+    await page
+      .getByRole("button", { name: "글씨 줄이기", exact: true })
+      .click();
+    await expect
+      .poll(async () => (await stored(page)).state.settings.fontScale)
+      .toBe(1);
     const timer = page.getByRole("timer", { name: "남은 시간", exact: true });
-    await expect(timer).toContainText(/100:00|99:5\d/);
     const remainingBefore = timerSeconds(await timer.innerText());
     await page.clock.runFor(60000);
     await page.setViewportSize({ width: 800, height: 1280 });
-    await expect(timer).toContainText(/99:0\d|98:5\d/);
     const remainingAfter = timerSeconds(await timer.innerText());
     expect(remainingBefore - remainingAfter).toBeGreaterThanOrEqual(59);
     expect(remainingBefore - remainingAfter).toBeLessThanOrEqual(62);
-    const after = (await stored(page)).state.sessions.find(
-      (session: any) => session.id === first.id,
-    );
+    const after = await activeSession(page);
     expect(after.deadlineAt).toBe(first.deadlineAt);
     expect(after.index).toBe(1);
-    expect(after.responses).toEqual(first.responses);
-    expect(after.questions.map((question: any) => question.id)).toEqual(
-      first.questions.map((question: any) => question.id),
+    expect(after.responses).toEqual(beforeTypeChange.responses);
+    expect(after.questions.map((q: any) => q.id)).toEqual(
+      first.questions.map((q: any) => q.id),
     );
     await page.reload();
     await expect(timer).toContainText(/99:0\d|98:5\d/);
@@ -430,11 +603,7 @@ test.describe("터치·긴 문제·회전", () => {
     expect(Math.abs(remainingReloaded - expectedReloaded)).toBeLessThanOrEqual(
       1,
     );
-    expect(
-      (await stored(page)).state.sessions.find(
-        (session: any) => session.id === first.id,
-      ).deadlineAt,
-    ).toBe(first.deadlineAt);
+    expect((await activeSession(page)).deadlineAt).toBe(first.deadlineAt);
     expect((await stored(page)).state.settings.fontScale).toBe(1);
   });
 });
