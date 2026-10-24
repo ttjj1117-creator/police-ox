@@ -424,12 +424,16 @@ export class OriginalRepository {
   }
   async fullBackup(namespace: Namespace): Promise<FullBackup> {
     const key = this.stateKey(namespace);
+    const oxKey =
+      namespace === "real" && this.accountId
+        ? "ox:real:user:" + this.accountId
+        : namespace;
     const db = await this.db;
     return new Promise((resolve, reject) => {
       const tx = db.transaction("states", "readonly"),
         store = tx.objectStore("states");
       const original = store.get(key),
-        ox = store.get(namespace);
+        ox = store.get(oxKey);
       tx.oncomplete = () =>
         resolve({
           format: "police-learning-backup",

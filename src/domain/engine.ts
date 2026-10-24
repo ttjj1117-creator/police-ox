@@ -1,3 +1,4 @@
+import { syncLatest, syncConflict } from "../ox-sync/view";
 import {
   Basis,
   Item,
@@ -24,6 +25,8 @@ export function eligible(v: Item, b: Basis): boolean {
   );
 }
 export function latest(s: State, v: Item, b: Basis): Attempt | undefined {
+  const synced = syncLatest(s, v, b);
+  if (synced) return synced.attempt;
   return [...s.attempts]
     .reverse()
     .filter(
@@ -87,6 +90,9 @@ export function candidates(s: State, q: Selection): Item[] {
         (q.round && v.source.round !== q.round)
       )
         return false;
+      // Uncertain cross-device order is visible in sync review, never
+      // silently classified as a new unanswered/incorrect/unknown item.
+      if (q.filter !== "all" && syncConflict(s, v.id, q.basis)) return false;
       const a = latest(s, v, q.basis);
       return (
         q.filter === "all" ||

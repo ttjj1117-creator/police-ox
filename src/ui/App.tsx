@@ -24,7 +24,11 @@ import {
   subjectSummaries,
   descendants,
 } from "../domain/engine";
-import { Repository, Envelope, ConflictError } from "../data/repository";
+import { Envelope, ConflictError } from "../data/repository";
+import { useOxSync } from "../ox-sync/controller";
+import { copyHints } from "../ox-sync/view";
+import { OxCloudPanel, type OxCloudPreview } from "../ox-sync/OxCloudPanel";
+import { setPwaSessionActive } from "../pwa/runtime";
 import {
   backup,
   download,
@@ -40,7 +44,6 @@ import { DeleteItems } from "./DeleteItems";
 import { removeItems } from "../data/remove-items";
 import { installBookTaxonomies } from "../data/book-taxonomies";
 
-const repository = new Repository();
 function registeredProblems(items: Item[]) {
   const groups = new Map<
     string,
@@ -61,11 +64,16 @@ function registeredProblems(items: Item[]) {
       order[a.subjectId] - order[b.subjectId],
   );
 }
-type Page = "home" | "scope" | "quiz" | "result" | "settings";
+type Page = "home" | "scope" | "quiz" | "result" | "settings" | "cloud";
+const entryPage = (): Page =>
+  new URLSearchParams(location.search).get("panel") === "cloud"
+    ? "cloud"
+    : "home";
 type Pending = {
   kind: "import" | "restore";
   value: unknown;
   description: string;
+  migration?: OxCloudPreview;
 };
 const labels = { exam: "출제 당시", current: "현행 기준" };
 export function App({
@@ -82,7 +90,19 @@ export function App({
       : "real",
   );
   const [envelope, setEnvelope] = useState<Envelope | null>(null);
-  const [page, setPage] = useState<Page>("home");
+  const cloud = useOxSync(namespace);
+  const repository = cloud.controller;
+  const connected = namespace === "real" && !!cloud.auth && !cloud.legacyMode;
+  const identity =
+    namespace === "demo"
+      ? "demo"
+      : cloud.legacyMode
+        ? `legacy-lease:${cloud.ownerId}`
+        : (cloud.ownerId ?? "legacy");
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
+  const [page, setPage] = useState<Page>(entryPage);
   const [selection, setSelection] = useState<Selection>(defaultSelection);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -98,13 +118,24 @@ export function App({
     history.replaceState(null, "", url);
     let alive = true;
     setEnvelope(null);
+    setLoadedIdentity(null);
+    setSessionId(null);
+    setPage(entryPage());
+    setSelection(defaultSelection);
     setPending(null);
     retry.current = null;
     unsaved.current = null;
     setError("");
+    setNotice("");
+    setBusy(false);
+    if (!cloud.ready)
+      return () => {
+        alive = false;
+      };
     repository
       .load(namespace)
       .then(async (loaded) => {
+        if (!alive || identityRef.current !== identity) return;
         let e = loaded;
         const policyChanged = useCurrentLearning(e.state, namespace === "demo");
         const booksChanged =
@@ -117,39 +148,100 @@ export function App({
             e = await repository.load(namespace);
           }
         }
-        if (!alive) return;
+        if (!alive || identityRef.current !== identity) return;
         setEnvelope(e);
+        setLoadedIdentity(identity);
         const active = e.state.sessions.find((x) => x.status === "active");
         setSessionId(active?.id ?? null);
-        setPage(active ? "quiz" : "home");
+        setPage(active ? "quiz" : entryPage());
       })
       .catch((e) => alive && setError(errorMessage(e)));
     return () => {
       alive = false;
     };
-  }, [namespace]);
-  const s = envelope?.state;
+  }, [namespace, cloud.ready, identity, repository]);
+  const s =
+    cloud.ready && loadedIdentity === identity ? envelope?.state : undefined;
   const session = s?.sessions.find((x) => x.id === sessionId);
   const active = s?.sessions.find((x) => x.status === "active");
+  useEffect(() => {
+    setPwaSessionActive(!!active);
+    return () => setPwaSessionActive(false);
+  }, [!!active]);
+  useEffect(() => {
+    if (
+      !cloud.ready ||
+      loadedIdentity !== identity ||
+      !envelope ||
+      envelope.generation === cloud.generation ||
+      busy ||
+      lock.current ||
+      unsaved.current
+    )
+      return;
+    let alive = true;
+    void repository
+      .load(namespace)
+      .then((saved) => {
+        if (
+          !alive ||
+          identityRef.current !== identity ||
+          lock.current ||
+          unsaved.current
+        )
+          return;
+        setEnvelope(saved);
+        const resumed = saved.state.sessions.find(
+          (item) => item.status === "active",
+        );
+        if (
+          page === "quiz" &&
+          !saved.state.sessions.some((item) => item.id === sessionId)
+        ) {
+          setSessionId(resumed?.id ?? null);
+          setPage(resumed ? "quiz" : "home");
+        }
+      })
+      .catch((e) => {
+        if (alive && identityRef.current === identity)
+          setError(errorMessage(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [
+    cloud.generation,
+    cloud.ready,
+    loadedIdentity,
+    identity,
+    namespace,
+    repository,
+    busy,
+    envelope?.generation,
+  ]);
   async function mutate(change: (draft: State) => void, done?: () => void) {
-    if (lock.current || !envelope) return;
+    if (lock.current || !envelope || !s || identityRef.current !== identity)
+      return;
     lock.current = true;
     setBusy(true);
     setError("");
     let draft: State | null = null;
     try {
       draft = structuredClone(envelope.state);
+      copyHints(envelope.state, draft);
       change(draft);
       const saved = await repository.save(
         namespace,
         draft,
         envelope.generation,
       );
+      if (identityRef.current !== identity) return;
       setEnvelope(saved);
       retry.current = null;
       unsaved.current = null;
       done?.();
     } catch (e) {
+      if (identityRef.current !== identity) return;
       if (e instanceof ConflictError) {
         setEnvelope(await repository.load(namespace));
         retry.current = null;
@@ -162,7 +254,17 @@ export function App({
       }
     } finally {
       lock.current = false;
-      setBusy(false);
+      if (identityRef.current === identity) setBusy(false);
+    }
+  }
+  function syncCompleted() {
+    if (connected) {
+      void repository.sync().catch((e) => {
+        if (identityRef.current === identity)
+          setError(
+            "이 기기에는 저장했습니다. 동기화 재시도: " + errorMessage(e),
+          );
+      });
     }
   }
   function go(p: Page) {
@@ -200,6 +302,7 @@ export function App({
         kind === "import"
           ? parseFile(await file.text())
           : JSON.parse(await file.text());
+      if (identityRef.current !== identity) return;
       if (
         value &&
         typeof value === "object" &&
@@ -222,6 +325,17 @@ export function App({
           description: `지문 추가 ${preview.added}개 · 수정 ${preview.updated}개 · 미변경 ${preview.unchanged}개. 누락된 기존 지문은 유지합니다. 목차·묶음·처리 상태도 함께 반영합니다.`,
         });
       } else {
+        if (connected) {
+          const migration = await repository.importPreview(value);
+          if (identityRef.current !== identity) return;
+          setPending({
+            kind,
+            value,
+            migration,
+            description: `지문 ${migration.items}개 · 완료·종료 세션 ${migration.sessions}개 · 응답 ${migration.attempts}개 · 충돌 ${migration.conflicts}건. 로그인한 OX 계정의 기존 기록과 합칩니다. 원본 백업과 이 기기의 설정·순회는 보존합니다.`,
+          });
+          return;
+        }
         const restored = validateBackup(value, namespace);
         setPending({
           kind,
@@ -232,6 +346,49 @@ export function App({
     } catch (e) {
       setError(errorMessage(e));
     }
+  }
+  async function applyPending() {
+    if (!pending || !s) return;
+    if (pending.migration) {
+      if (lock.current || active) return;
+      lock.current = true;
+      setBusy(true);
+      setError("");
+      try {
+        await repository.connectExisting(
+          pending.migration.state,
+          pending.migration.source,
+        );
+        const saved = await repository.load(namespace);
+        if (identityRef.current !== identity) return;
+        setEnvelope(saved);
+        setPending(null);
+        setSessionId(null);
+        setNotice("검증한 OX 백업을 계정의 기존 기록과 합쳤습니다.");
+      } catch (e) {
+        if (identityRef.current === identity) setError(errorMessage(e));
+      } finally {
+        lock.current = false;
+        if (identityRef.current === identity) setBusy(false);
+      }
+      return;
+    }
+    await mutate(
+      (d) => {
+        if (d.sessions.some((item) => item.status === "active"))
+          throw new Error("진행 중 세션을 종료하세요.");
+        if (pending.kind === "import")
+          d.dataset = mergeDataset(d.dataset, pending.value).dataset;
+        else Object.assign(d, validateBackup(pending.value, namespace));
+        useCurrentLearning(d, namespace === "demo");
+        if (namespace === "real") installBookTaxonomies(d);
+      },
+      () => {
+        setPending(null);
+        setNotice("검증한 데이터를 저장했습니다.");
+        setSessionId(null);
+      },
+    );
   }
   if (!s)
     return (
@@ -275,7 +432,9 @@ export function App({
           >
             원문 기출 학습 →
           </a>
-          <span className="privacy">내 기기에 저장</span>
+          <span className="privacy">
+            {connected ? "같은 계정의 OX 기록 공유" : "내 기기에 저장"}
+          </span>
         </div>
       </header>
       {namespace === "demo" && (
@@ -289,6 +448,7 @@ export function App({
             ["home", "학습 홈"],
             ["scope", "범위 선택"],
             ["settings", "데이터·설정"],
+            ["cloud", "계정·기기 동기화"],
           ] as const
         ).map(([p, label]) => (
           <button
@@ -302,6 +462,22 @@ export function App({
         ))}
       </nav>
       <main>
+        {connected && page !== "cloud" && (
+          <div className="ox-sync-inline" aria-label="OX 동기화 상태">
+            <span role="status">
+              {cloud.message}
+              {cloud.pending ? ` · 전송 대기 ${cloud.pending}건` : ""}
+            </span>
+            <button
+              disabled={busy || cloud.busy}
+              onClick={() =>
+                void repository.sync().catch((e) => setError(errorMessage(e)))
+              }
+            >
+              지금 동기화
+            </button>
+          </div>
+        )}
         {error && (
           <section className="error" role="alert">
             <strong>
@@ -327,6 +503,20 @@ export function App({
           <p className="notice" role="status">
             {notice}
           </p>
+        )}
+        {page === "cloud" && (
+          <OxCloudPanel
+            cloud={cloud}
+            state={s}
+            namespace={namespace}
+            busy={busy}
+            onBackup={() =>
+              download(
+                backup(s, namespace),
+                `police-ox-${namespace}-backup.json`,
+              )
+            }
+          />
         )}
         {page === "home" && (
           <>
@@ -497,7 +687,10 @@ export function App({
               mutate(
                 (d) => next(d, session.id),
                 () => {
-                  if (session.index === session.items.length - 1) go("result");
+                  if (session.index === session.items.length - 1) {
+                    go("result");
+                    syncCompleted();
+                  }
                 },
               )
             }
@@ -506,9 +699,13 @@ export function App({
                 (d) => {
                   d.sessions.find((x) => x.id === session.id)!.status = "ended";
                 },
-                () => go("result"),
+                () => {
+                  go("result");
+                  syncCompleted();
+                },
               )
             }
+            syncAfterEnd={connected}
           />
         )}
         {page === "result" && session && (
@@ -606,11 +803,14 @@ export function App({
               state={s}
               namespace={namespace}
               busy={busy}
+              preserveLearningRecords={connected}
               onDelete={(ids) => {
                 let removed = 0;
                 mutate(
                   (draft) => {
-                    const result = removeItems(draft, new Set(ids));
+                    const result = removeItems(draft, new Set(ids), {
+                      preserveLearningRecords: connected,
+                    });
                     removed = result.counts.items;
                     Object.assign(draft, result.state);
                   },
@@ -618,7 +818,9 @@ export function App({
                     setSessionId(null);
                     setPending(null);
                     setNotice(
-                      `문제 ${removed}개와 관련 학습 기록을 삭제했습니다.`,
+                      connected
+                        ? `문제 ${removed}개를 계정 문제은행에서 제거했습니다. 과거 풀이 기록은 보존했습니다.`
+                        : `문제 ${removed}개와 관련 학습 기록을 삭제했습니다.`,
                     );
                   },
                 );
@@ -630,6 +832,12 @@ export function App({
                 현재 {namespace === "real" ? "실제" : "시연"} 영역의 문제, 기록,
                 표시, 세션, 순회와 설정을 포함합니다.
               </p>
+              {connected && (
+                <p className="notice">
+                  계정에 연결된 백업 복구는 기존 기록과 병합합니다. 다른 기기
+                  기록을 전체 교체하거나 지우지 않습니다.
+                </p>
+              )}
               <button
                 className="primary"
                 onClick={() =>
@@ -658,7 +866,9 @@ export function App({
               <section className="preview" aria-label="가져오기 미리보기">
                 <h2>
                   {pending.kind === "restore"
-                    ? "전체 교체 확인"
+                    ? pending.migration
+                      ? "OX 계정 병합 확인"
+                      : "전체 교체 확인"
                     : "가져오기 미리보기"}
                 </h2>
                 <p>{pending.description}</p>
@@ -666,31 +876,7 @@ export function App({
                   <button
                     disabled={busy}
                     className="primary"
-                    onClick={() =>
-                      mutate(
-                        (d) => {
-                          if (d.sessions.some((x) => x.status === "active"))
-                            throw new Error("진행 중 세션을 종료하세요.");
-                          if (pending.kind === "import")
-                            d.dataset = mergeDataset(
-                              d.dataset,
-                              pending.value,
-                            ).dataset;
-                          else
-                            Object.assign(
-                              d,
-                              validateBackup(pending.value, namespace),
-                            );
-                          useCurrentLearning(d, namespace === "demo");
-                          if (namespace === "real") installBookTaxonomies(d);
-                        },
-                        () => {
-                          setPending(null);
-                          setNotice("검증한 데이터를 저장했습니다.");
-                          setSessionId(null);
-                        },
-                      )
-                    }
+                    onClick={() => void applyPending()}
                   >
                     확인하고 적용
                   </button>
@@ -699,37 +885,51 @@ export function App({
               </section>
             )}
             <section>
-              <h2>학습 기록 초기화</h2>
+              <h2>{connected ? "이 기기 순회 초기화" : "학습 기록 초기화"}</h2>
               <p>
-                현재 {namespace === "real" ? "실제" : "시연"} 영역의 응답·다시
-                보기·세션·순회·배정 기록을 삭제합니다. 문제와 글자 크기는
-                유지합니다.
+                {connected
+                  ? "이 기기의 순회와 균형 배정만 초기화합니다. 계정의 문제·응답·다시 보기·완료 세션과 글자 크기는 보존합니다."
+                  : `현재 ${namespace === "real" ? "실제" : "시연"} 영역의 응답·다시 보기·세션·순회·배정 기록을 삭제합니다. 문제와 글자 크기는 유지합니다.`}
               </p>
               <button
                 className="danger"
-                disabled={busy}
+                disabled={busy || !!active}
                 onClick={() => {
                   if (
                     window.confirm(
-                      `현재 ${namespace === "real" ? "실제" : "시연"} 영역의 학습 기록을 모두 삭제할까요? 문제는 유지됩니다.`,
+                      connected
+                        ? "이 기기의 순회·균형 배정만 초기화할까요? 공유 학습 기록은 보존합니다."
+                        : `현재 ${namespace === "real" ? "실제" : "시연"} 영역의 학습 기록을 모두 삭제할까요? 문제는 유지됩니다.`,
                     )
                   )
                     mutate(
                       (d) => {
-                        d.attempts = [];
-                        d.marks = {};
-                        d.sessions = [];
+                        if (!connected) {
+                          d.attempts = [];
+                          d.marks = {};
+                          d.sessions = [];
+                        } else {
+                          // cycleKey only identifies this device's progress;
+                          // completed wire records always have a null key.
+                          d.sessions.forEach((session) => {
+                            session.cycleKey = null;
+                          });
+                        }
                         d.cycles = {};
                         d.allocations = {};
                       },
                       () => {
                         setSessionId(null);
-                        setNotice("학습 기록을 초기화했습니다.");
+                        setNotice(
+                          connected
+                            ? "이 기기의 순회와 배정만 초기화했습니다."
+                            : "학습 기록을 초기화했습니다.",
+                        );
                       },
                     );
                 }}
               >
-                학습 기록 초기화
+                {connected ? "이 기기 순회 초기화" : "학습 기록 초기화"}
               </button>
             </section>
             <section aria-labelledby="registered-problems-title">
@@ -771,7 +971,9 @@ export function App({
       <footer>
         경찰시험 OX · 개인 학습용
         <br />
-        데이터는 이 브라우저에 저장됩니다. 정기적으로 백업하세요.
+        {connected
+          ? "이 기기에 먼저 저장하고 완료한 OX 기록을 같은 계정으로 공유합니다. 정기적으로 백업하세요."
+          : "데이터는 이 브라우저에 저장됩니다. 정기적으로 백업하세요."}
       </footer>
     </div>
   );
@@ -1051,6 +1253,7 @@ function Quiz({
   onMark,
   onNext,
   onEnd,
+  syncAfterEnd = false,
 }: {
   state: State;
   session: Session;
@@ -1059,6 +1262,7 @@ function Quiz({
   onMark: () => void;
   onNext: () => void;
   onEnd: () => void;
+  syncAfterEnd?: boolean;
 }) {
   const v = session.items[session.index],
     b = session.selection.basis,
@@ -1221,11 +1425,12 @@ function Quiz({
         </section>
       )}
       <button className="text-button" disabled={busy} onClick={onEnd}>
-        이번 세션 종료
+        {syncAfterEnd ? "학습 마치고 동기화" : "이번 세션 종료"}
       </button>
       <p className="muted">
-        미응답 지문은 오답으로 기록하지 않습니다. 저장된 위치에서 이어 풀 수
-        있습니다.
+        {syncAfterEnd
+          ? "진행 중 답안은 이 기기에 남고, 학습을 마치면 완료 기록을 공유합니다. 미응답 지문은 오답으로 기록하지 않습니다."
+          : "미응답 지문은 오답으로 기록하지 않습니다. 저장된 위치에서 이어 풀 수 있습니다."}
       </p>
     </>
   );

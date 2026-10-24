@@ -13,11 +13,13 @@ export function DeleteItems({
   namespace,
   busy,
   onDelete,
+  preserveLearningRecords = false,
 }: {
   state: State;
   namespace: Namespace;
   busy: boolean;
   onDelete: (ids: string[]) => void;
+  preserveLearningRecords?: boolean;
 }) {
   const [filter, setFilter] = useState<RemovalFilter>({
     subjectId: "",
@@ -39,8 +41,9 @@ export function DeleteItems({
     <section aria-labelledby="delete-items-title">
       <h2 id="delete-items-title">문제 데이터 삭제</h2>
       <p>
-        현재 {namespace === "real" ? "실제" : "시연"} 영역에서 선택한 문제와
-        관련 학습 기록을 삭제합니다. 삭제 전 전체 백업을 권장합니다.
+        {preserveLearningRecords
+          ? "선택한 문제를 계정의 문제은행에서 제거합니다. 과거 풀이 응답과 완료·종료 세션은 보존합니다. 제거 전 전체 백업을 권장합니다."
+          : `현재 ${namespace === "real" ? "실제" : "시연"} 영역에서 선택한 문제와 관련 학습 기록을 삭제합니다. 삭제 전 전체 백업을 권장합니다.`}
       </p>
       <div className="fields">
         <label className="field">
@@ -107,7 +110,9 @@ export function DeleteItems({
           setPreview(null);
           try {
             const ids = removalIds(state, filter);
-            const { counts } = removeItems(state, new Set(ids));
+            const { counts } = removeItems(state, new Set(ids), {
+              preserveLearningRecords,
+            });
             setPreview({ ids, counts });
           } catch (e) {
             setError(errorMessage(e));
@@ -123,7 +128,11 @@ export function DeleteItems({
             과목: {filter.subjectId ? subjects[filter.subjectId] : "전체"} ·
             연도: {filter.year || "전체"} · 회차: {filter.round || "전체"}
           </p>
-          <p>함께 정리될 관련 학습 기록</p>
+          <p>
+            {preserveLearningRecords
+              ? "과거 응답·완료 세션·문항 스냅샷은 보존합니다. 아래 표시·기기 순회·자료 처리 상태만 정리합니다."
+              : "함께 정리될 관련 학습 기록"}
+          </p>
           <ul>
             <li>응답(attempts): {preview.counts.attempts}개</li>
             <li>다시 보기(marks): {preview.counts.marks}개</li>
@@ -143,8 +152,9 @@ export function DeleteItems({
             <li>자료 처리 상태(coverage): {preview.counts.coverage}개 제거</li>
           </ul>
           <p>
-            비삭제 문제의 응답과 목차·학습 묶음·설정은 유지합니다. 삭제 후
-            되돌리려면 전체 백업이 필요합니다.
+            {preserveLearningRecords
+              ? "문제 제거는 같은 계정의 다른 기기에도 반영됩니다. 과거 풀이 기록과 목차·학습 묶음·설정은 유지합니다. 문제를 복원하려면 검증한 문제 파일을 다시 가져오세요."
+              : "비삭제 문제의 응답과 목차·학습 묶음·설정은 유지합니다. 삭제 후 되돌리려면 전체 백업이 필요합니다."}
           </p>
           <div className="actions">
             <button

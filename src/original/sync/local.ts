@@ -41,7 +41,7 @@ export function queueChanges(
     clock: usableClock(meta.clock),
     order: meta.projection.order,
     markVersions: meta.projection.markVersions,
-    pendingEvents: meta.outbox.filter((event) => !meta.failures[event.eventId]),
+    pendingEvents: meta.outbox,
   });
   return {
     ...meta,

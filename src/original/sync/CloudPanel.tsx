@@ -10,12 +10,14 @@ export function CloudPanel({
   namespace,
   busy,
   onBackup,
+  oxStatus,
 }: {
   cloud: CloudView & { controller: CloudController };
   state: OriginalState;
   namespace: string;
   busy: boolean;
   onBackup: () => void;
+  oxStatus?: { ready: boolean; message: string; pending: number };
 }) {
   const [email, setEmail] = useState(""),
     [code, setCode] = useState(""),
@@ -50,6 +52,24 @@ export function CloudPanel({
   return (
     <div className="cloud-page">
       <h1>계정·기기 동기화</h1>
+      <p>
+        원문 학습과 OX는 같은 로그인 계정을 사용하며 문제와 학습 기록은 각각
+        관리합니다.
+      </p>
+      {namespace === "real" && (
+        <section aria-label="OX 동기화 바로가기">
+          <h2>OX 문제·학습 기록</h2>
+          <p>
+            {oxStatus?.ready
+              ? oxStatus.message
+              : "OX 동기화를 준비하고 있습니다."}
+          </p>
+          {!!oxStatus?.pending && <p>OX 전송 대기 {oxStatus.pending}건</p>}
+          <a href="?view=ox&mode=real&panel=cloud">
+            OX 동기화·기존 기록 연결 열기 →
+          </a>
+        </section>
+      )}
       <p>
         PC와 갤탭에서 같은 계정으로 로그인하면 문제은행과 완료·종료한 학습
         기록을 공유합니다.
@@ -127,10 +147,16 @@ export function CloudPanel({
                     disabled={disabled || active}
                     onClick={() =>
                       run(async () => {
+                        const ox = await cloud.controller.linkedOxStatus();
+                        if (ox.active)
+                          throw new Error(
+                            "진행 중 OX 학습을 종료한 뒤 로그아웃하세요.",
+                          );
+                        const allPending = cloud.pending + ox.pending;
                         if (
-                          cloud.pending &&
+                          allPending &&
                           !window.confirm(
-                            `미전송 ${cloud.pending}건을 이 기기에 보관하고 로그아웃할까요? 다시 같은 계정으로 로그인하면 전송합니다.`,
+                            `원문·OX 미전송 ${allPending}건을 이 기기에 보관하고 로그아웃할까요? 다시 같은 계정으로 로그인하면 전송합니다.`,
                           )
                         )
                           return;
