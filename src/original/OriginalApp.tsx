@@ -51,6 +51,12 @@ import type { ReviewScope } from "./review-analytics";
 import "./original.css";
 import "./review-progress.css";
 import { QuizChrome, QuizAnswerSheet } from "./QuizChrome";
+import {
+  InkProvider,
+  InkToolbar,
+  InkSurface,
+  InkChoiceButton,
+} from "./ink/Ink";
 import { useCloudSync } from "./sync/controller";
 import { CloudPanel } from "./sync/CloudPanel";
 import { appUrl } from "../pwa/base";
@@ -125,6 +131,9 @@ export function OriginalApp({
     ...defaultReviewScope,
   });
   const [sessionId, setSessionId] = useState<string | null>(null);
+  useEffect(() => {
+    setAnswerSheetOpen(false);
+  }, [page, sessionId]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<Pending | null>(null);
@@ -390,6 +399,26 @@ export function OriginalApp({
     setPwaSessionActive(!!active);
   }, [!!active]);
   const q = session?.questions[session.index];
+  const inkContentVersion = useMemo(
+    () =>
+      q
+        ? JSON.stringify({
+            renderer: "original-blocks-ink-v1",
+            revision: q.revision,
+            gradingRevision: q.gradingRevision,
+            body: q.body,
+            choices: q.choices,
+            assets: session?.assets.map(({ assetId, sha256 }) => [
+              assetId,
+              sha256,
+            ]),
+          })
+        : "",
+    [q, session?.assets],
+  );
+  useEffect(() => {
+    if (page === "quiz") window.scrollTo({ top: 0, left: 0 });
+  }, [page, sessionId, session?.index]);
   const attempted =
     session && q
       ? state?.attempts.find(
@@ -725,6 +754,7 @@ export function OriginalApp({
         !session ||
         session.status !== "active" ||
         busy ||
+        answerSheetOpen ||
         expired ||
         attempted
       )
@@ -732,6 +762,7 @@ export function OriginalApp({
       const target = event.target as HTMLElement;
       if (
         target.matches("input,textarea,select") ||
+        !!target.closest("#quiz-reading-menu-items") ||
         target.isContentEditable ||
         event.altKey ||
         event.ctrlKey ||
@@ -750,7 +781,7 @@ export function OriginalApp({
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [page, session, busy, expired, attempted, namespace]);
+  }, [page, session, busy, expired, attempted, namespace, answerSheetOpen]);
   if (!state)
     return (
       <main className="original-loading">
@@ -1144,7 +1175,22 @@ export function OriginalApp({
             </>
           )}
           {page === "quiz" && session && q && (
-            <>
+            <InkProvider
+              key={JSON.stringify([
+                namespace,
+                namespace === "real" ? cloud.ownerId : "local",
+                session.id,
+                q.id,
+                inkContentVersion,
+              ])}
+              ownerKey={
+                namespace === "real" ? (cloud.ownerId ?? "local") : "local"
+              }
+              namespace={namespace}
+              sessionId={session.id}
+              questionId={q.id}
+              contentVersion={inkContentVersion}
+            >
               <QuizChrome
                 subjectLabel={subjectLabels[q.subjectId]}
                 current={session.index + 1}
@@ -1163,6 +1209,12 @@ export function OriginalApp({
                     : undefined
                 }
                 expired={expired}
+                fontScale={state.settings.fontScale}
+                onFontScaleChange={(scale) => {
+                  void mutate((draft) => {
+                    draft.settings.fontScale = scale;
+                  });
+                }}
                 busy={busy}
                 answerSheetOpen={answerSheetOpen}
                 onToggleAnswers={() => setAnswerSheetOpen((value) => !value)}
@@ -1176,6 +1228,7 @@ export function OriginalApp({
                   onSelect: () => navigate(target as Page),
                 }))}
               />
+              <InkToolbar />
               <div className="original-quiz-grid">
                 <div>
                   <section className="original-question">
@@ -1208,7 +1261,9 @@ export function OriginalApp({
                         {state.marks[q.id] ? "★ 다시 보기" : "☆ 다시 보기"}
                       </button>
                     </div>
-                    <Blocks blocks={q.body} assets={session.assets} />
+                    <InkSurface surfaceId="body">
+                      <Blocks blocks={q.body} assets={session.assets} />
+                    </InkSurface>
                     <div className="original-choices">
                       {q.choices.map((c) => {
                         const selected =
@@ -1218,40 +1273,44 @@ export function OriginalApp({
                               ? attempted.response === c.number
                               : choice === c.number;
                         return (
-                          <button
-                            key={c.number}
-                            className={selected ? "chosen" : ""}
-                            aria-label={`${c.number}번 선택`}
-                            aria-pressed={selected}
-                            disabled={
-                              busy ||
-                              session.status !== "active" ||
-                              expired ||
-                              !!attempted
-                            }
-                            onClick={() =>
-                              session.mode === "exam"
-                                ? mutate((d) => {
-                                    answer(
-                                      d,
-                                      session.id,
-                                      c.number as 1 | 2 | 3 | 4,
-                                      Date.now(),
-                                    );
-                                  })
-                                : setChoice(c.number as 1 | 2 | 3 | 4)
-                            }
-                          >
-                            <span className="original-choice-number">
-                              {c.number}
-                            </span>
-                            <div>
-                              <Blocks
-                                blocks={c.blocks}
-                                assets={session.assets}
-                              />
+                          <div className="original-choice-row" key={c.number}>
+                            <InkChoiceButton
+                              type="button"
+                              className={`original-choice-button${selected ? " chosen" : ""}`}
+                              aria-label={`${c.number}번 선택`}
+                              aria-pressed={selected}
+                              disabled={
+                                busy ||
+                                session.status !== "active" ||
+                                expired ||
+                                !!attempted
+                              }
+                              onClick={() =>
+                                session.mode === "exam"
+                                  ? mutate((d) => {
+                                      answer(
+                                        d,
+                                        session.id,
+                                        c.number as 1 | 2 | 3 | 4,
+                                        Date.now(),
+                                      );
+                                    })
+                                  : setChoice(c.number as 1 | 2 | 3 | 4)
+                              }
+                            >
+                              <span className="original-choice-number">
+                                {c.number}
+                              </span>
+                            </InkChoiceButton>
+                            <div className="original-choice-text">
+                              <InkSurface surfaceId={`choice-${c.number}`}>
+                                <Blocks
+                                  blocks={c.blocks}
+                                  assets={session.assets}
+                                />
+                              </InkSurface>
                             </div>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -1508,7 +1567,7 @@ export function OriginalApp({
                   </aside>
                 </QuizAnswerSheet>
               </div>
-            </>
+            </InkProvider>
           )}
           {page === "result" && session && (
             <Result

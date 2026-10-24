@@ -17,6 +17,8 @@ export interface QuizChromeProps {
   answerSheetOpen: boolean;
   onToggleAnswers: () => void;
   menuItems: QuizMenuItem[];
+  fontScale?: number;
+  onFontScaleChange?: (scale: number) => void;
 }
 export function QuizChrome({
   subjectLabel,
@@ -30,8 +32,13 @@ export function QuizChrome({
   answerSheetOpen,
   onToggleAnswers,
   menuItems,
+  fontScale = 1,
+  onFontScaleChange,
 }: QuizChromeProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const fontScales = [1, 1.25, 1.5, 2];
+  const smaller = [...fontScales].reverse().find((scale) => scale < fontScale);
+  const larger = fontScales.find((scale) => scale > fontScale);
   const menuRoot = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -72,6 +79,35 @@ export function QuizChrome({
         </span>
       </div>
       <div className="quiz-reading-tools">
+        {onFontScaleChange && (
+          <div
+            className="quiz-font-controls"
+            role="group"
+            aria-label="글씨 크기"
+          >
+            <button
+              type="button"
+              aria-label="글씨 줄이기"
+              disabled={busy || smaller === undefined}
+              onClick={() =>
+                smaller !== undefined && onFontScaleChange(smaller)
+              }
+            >
+              글씨 −
+            </button>
+            <output aria-label="현재 글씨 크기">
+              {Math.round(fontScale * 100)}%
+            </output>
+            <button
+              type="button"
+              aria-label="글씨 키우기"
+              disabled={busy || larger === undefined}
+              onClick={() => larger !== undefined && onFontScaleChange(larger)}
+            >
+              글씨 +
+            </button>
+          </div>
+        )}
         {mode === "exam" && (
           <div
             className={`quiz-reading-time${expired ? " expired" : ""}`}
@@ -135,28 +171,14 @@ export interface QuizAnswerSheetProps {
 export function QuizAnswerSheet({
   open,
   onClose,
-  fontScale,
   children,
 }: QuizAnswerSheetProps) {
-  const [wide, setWide] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      window.matchMedia("(min-width: 1024px)").matches,
-  );
   const dialog = useRef<HTMLDivElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const overlay = !wide || fontScale >= 1.5;
   useEffect(() => {
-    const query = window.matchMedia("(min-width: 1024px)");
-    const update = () => setWide(query.matches);
-    query.addEventListener("change", update);
-    update();
-    return () => query.removeEventListener("change", update);
-  }, []);
-  useEffect(() => {
-    if (!overlay || !open) return;
+    if (!open) return;
     const previousFocus = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -204,20 +226,20 @@ export function QuizAnswerSheet({
       if (previousFocus?.isConnected && previousFocus.getClientRects().length)
         previousFocus.focus({ preventScroll: true });
     };
-  }, [overlay, open]);
+  }, [open]);
   return (
     <div
       id="quiz-answer-sheet"
       className="quiz-answer-shell"
-      data-overlay={overlay ? "true" : "false"}
+      data-overlay="true"
       data-open={open ? "true" : "false"}
-      hidden={overlay && !open}
-      role={overlay ? "dialog" : undefined}
-      aria-modal={overlay && open ? true : undefined}
-      aria-label={overlay ? "답안표" : undefined}
+      hidden={!open}
+      role="dialog"
+      aria-modal={open ? true : undefined}
+      aria-label="답안표"
       ref={dialog}
       onClick={(event) => {
-        if (overlay && event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) onClose();
       }}
     >
       <div className="quiz-answer-surface">
