@@ -51,6 +51,7 @@ import type { ReviewScope } from "./review-analytics";
 import "./original.css";
 import "./review-progress.css";
 import { QuizChrome, QuizAnswerSheet } from "./QuizChrome";
+import { ReadingFlowText } from "./ReadingFlowText";
 import {
   InkProvider,
   InkToolbar,
@@ -114,6 +115,12 @@ export function OriginalApp({
   const [envelope, setEnvelope] = useState<Envelope | null>(null);
   const cloud = useCloudSync(namespace);
   const oxCloud = useOxSync(namespace);
+  const readingOwner = JSON.stringify([namespace, namespace === "real" ? cloud.ownerId ?? "local" : "local"]);
+  const [readingPreference, setReadingPreference] = useState<{ owner: string; auto: boolean } | null>(null);
+  const readingPreferenceKey = "original:reading-flow:" + readingOwner;
+  let savedReadingFlow = true;
+  try { savedReadingFlow = localStorage.getItem(readingPreferenceKey) !== "original"; } catch { /* optional device preference */ }
+  const readingFlow = readingPreference?.owner === readingOwner ? readingPreference.auto : savedReadingFlow;
   const oxRepository = oxCloud.controller;
   const [answerSheetOpen, setAnswerSheetOpen] = useState(false);
   const envelopeRef = useRef<Envelope | null>(null);
@@ -1209,6 +1216,11 @@ export function OriginalApp({
                     : undefined
                 }
                 expired={expired}
+                readingFlow={readingFlow}
+                onReadingFlowChange={(auto) => {
+                  setReadingPreference({ owner: readingOwner, auto });
+                  try { localStorage.setItem(readingPreferenceKey, auto ? "auto" : "original"); } catch { /* keep the current view without changing study records */ }
+                }}
                 fontScale={state.settings.fontScale}
                 onFontScaleChange={(scale) => {
                   void mutate((draft) => {
@@ -1262,7 +1274,7 @@ export function OriginalApp({
                       </button>
                     </div>
                     <InkSurface surfaceId="body">
-                      <Blocks blocks={q.body} assets={session.assets} />
+                      <Blocks blocks={q.body} assets={session.assets} readingFlow={readingFlow} />
                     </InkSurface>
                     <div className="original-choices">
                       {q.choices.map((c) => {
@@ -1307,6 +1319,7 @@ export function OriginalApp({
                                 <Blocks
                                   blocks={c.blocks}
                                   assets={session.assets}
+                                  readingFlow={readingFlow}
                                 />
                               </InkSurface>
                             </div>
@@ -2117,20 +2130,20 @@ function Scope({
   );
 }
 
-function Blocks({ blocks, assets }: { blocks: Block[]; assets: Asset[] }) {
+function Blocks({ blocks, assets, readingFlow = false }: { blocks: Block[]; assets: Asset[]; readingFlow?: boolean }) {
   return (
     <>
       {blocks.map((b, i) =>
         b.type === "text" ? (
           <p className="original-content" key={i}>
-            {b.text}
+            <ReadingFlowText text={b.text} enabled={readingFlow} />
           </p>
         ) : b.type === "statements" ? (
           <div className="original-statements" key={i}>
             {b.entries.map((e, j) => (
               <p key={j}>
                 <b>{e.label}</b>
-                <span>{e.text}</span>
+                <span><ReadingFlowText text={e.text} enabled={readingFlow} /></span>
               </p>
             ))}
           </div>
