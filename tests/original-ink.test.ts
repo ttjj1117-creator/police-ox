@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
 import {
   choicePointerAllowed,
+  InkInputCoordinator,
+  InkFingerPan,
   editInk,
   emptyInkDocument,
   emptyInkHistory,
@@ -57,13 +59,74 @@ describe("local pencil history and input boundary", () => {
     expect(isDrawingPointer("pen")).toBe(true);
     expect(isDrawingPointer("touch")).toBe(false);
     expect(isDrawingPointer("mouse")).toBe(false);
-    expect(choicePointerAllowed("pen", "touch", false)).toBe(false);
-    expect(choicePointerAllowed("eraser", "touch", false)).toBe(false);
-    expect(choicePointerAllowed("read", "touch", false)).toBe(true);
-    for (const type of ["pen", "mouse", "keyboard"])
-      expect(choicePointerAllowed("pen", type, false)).toBe(true);
-    expect(choicePointerAllowed("pen", "pen", true)).toBe(false);
-    expect(choicePointerAllowed("pen", "pen", false, true)).toBe(false);
+    for (const type of ["pen", "touch", "mouse", "keyboard"])
+      expect(choicePointerAllowed(type, false)).toBe(true);
+    expect(choicePointerAllowed("pen", true)).toBe(false);
+    expect(choicePointerAllowed("pen", false, true)).toBe(false);
+    expect(choicePointerAllowed("touch", false, false, true)).toBe(false);
+    expect(choicePointerAllowed("mouse", false, false, true)).toBe(true);
+  });
+  it("a pen contact turns existing and new touches into palms until each lifts", () => {
+    let now = 100;
+    const input = new InkInputCoordinator(() => now);
+    input.touchDown(1);
+    expect(input.canPan(1)).toBe(true);
+    input.penDown(9);
+    expect(input.canPan(1)).toBe(false);
+    input.touchDown(2);
+    expect(input.touchBlocked(2)).toBe(true);
+    input.penUp(9);
+    expect(input.canPan(1)).toBe(false);
+    input.touchUp(1);
+    expect(input.touchBlocked(1)).toBe(true);
+    input.touchUp(2);
+    input.touchDown(3);
+    expect(input.canPan(3)).toBe(true);
+    input.touchUp(3);
+    now += 1001;
+    expect(input.touchBlocked(1)).toBe(false);
+  });
+  it("multiple fingers disable manual pan and choices until every contact lifts, without becoming palms", () => {
+    const input = new InkInputCoordinator();
+    input.touchDown(1);
+    input.touchDown(2);
+    expect(input.canPan(1)).toBe(false);
+    expect(input.hasPalmTouch).toBe(false);
+    expect(input.palmBlocked(2)).toBe(false);
+    expect(input.touchBlocked(2)).toBe(true);
+    input.touchUp(2);
+    expect(input.touchBlocked(2)).toBe(true);
+    expect(input.canPan(1)).toBe(false);
+    input.touchUp(1);
+    input.touchDown(3);
+    expect(input.canPan(3)).toBe(true);
+  });
+  it("contact reset releases pen/palm/multitouch gates and recent ink click suppression", () => {
+    const input = new InkInputCoordinator();
+    input.penDown(1); input.touchDown(2); input.touchDown(3); input.markInkGesture();
+    expect(input.hasContacts).toBe(true);
+    expect(input.recentInkGesture()).toBe(true);
+    input.reset();
+    expect(input.hasContacts).toBe(false);
+    expect(input.touchBlocked(2)).toBe(false);
+    expect(input.recentInkGesture()).toBe(false);
+    input.touchDown(4);
+    expect(input.canPan(4)).toBe(true);
+  });
+  it("finger movement ignores slop, locks the dominant axis, and cancels when contacts are blocked", () => {
+    const pan = new InkFingerPan();
+    pan.start(1, 100, 200);
+    expect(pan.move(1, 102, 196, true)).toEqual({ x: 0, y: 0 });
+    expect(pan.move(2, 102, 150, true)).toEqual({ x: 0, y: 0 });
+    expect(pan.move(1, 104, 180, true)).toEqual({ x: 0, y: 20 });
+    expect(pan.move(1, 160, 175, true)).toEqual({ x: 0, y: 5 });
+    expect(pan.move(1, 160, 140, false)).toEqual({ x: 0, y: 0 });
+    expect(pan.pointerId).toBeUndefined();
+    expect(pan.move(1, 160, 110, true)).toEqual({ x: 0, y: 0 });
+    pan.start(2, 100, 100);
+    expect(pan.move(2, 70, 101, true)).toEqual({ x: 30, y: 0 });
+    pan.end(2);
+    expect(pan.pointerId).toBeUndefined();
   });
   it("undoes erasing and clearing without changing the original snapshots", () => {
     const initial = emptyInkHistory();

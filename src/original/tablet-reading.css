@@ -131,6 +131,7 @@
   font-size: inherit;
 }
 .original-app.is-quiz .original-choice-text {
+  width: 100%;
   min-width: 0;
   padding-block: 4px;
 }
@@ -371,4 +372,23 @@
 /* A writing surface is a flow root; avoid adding the final block margin twice. */
 .original-app.is-quiz .original-question .ink-content > :last-child {
   margin-bottom: 0;
+}
+
+/* Display flow only: original text and the stored question package stay intact. */
+.original-app.is-quiz .original-reading-flow {
+  white-space: normal;
+}
+.original-app.is-quiz .original-reading-hard-break,
+.original-app.is-quiz .original-reading-verbatim {
+  white-space: pre-wrap;
+}
+.original-app.is-quiz .original-choice-text > .ink-surface,
+.original-app.is-quiz .original-choice-text > .ink-surface > .ink-content {
+  width: 100%;
+}
+/* A tablet can expose a wide CSS viewport in desktop mode or reduced zoom. */
+@media (any-pointer: coarse) {
+  .original-app.is-quiz .original-layout {
+    max-width: none;
+  }
 }

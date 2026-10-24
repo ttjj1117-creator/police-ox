@@ -1,7 +1,8 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 
 // Every browser context is empty and uses only the app's synthetic demo data.
-// Dispatching PointerEvents verifies the standard event contract, not physical S Pen latency or palm rejection.
+// Synthetic PointerEvents cover app state; CDP inputs also exercise Chromium dispatch.
+// Neither substitutes for physical S Pen latency, Android palm rejection, or Samsung Internet testing.
 test.use({ viewport: { width: 1280, height: 800 }, hasTouch: true });
 const surface = (page: Page, id = "body") =>
   page.locator(`.ink-surface[data-ink-surface="${id}"]`);
@@ -129,13 +130,13 @@ async function penStroke(
   });
   return { layer, from, to };
 }
-async function penNumber(button: Locator, moved = false) {
+async function penNumber(button: Locator, moved: boolean | number = false, pointerType = "pen") {
   const box = (await button.boundingBox())!;
   const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  const to = { x: from.x + (moved ? 22 : 0), y: from.y + (moved ? 18 : 0) };
+  const to = { x: from.x + (typeof moved === "number" ? moved : moved ? 22 : 0), y: from.y + (typeof moved === "number" ? 0 : moved ? 18 : 0) };
   const common = {
     pointerId: 31,
-    pointerType: "pen",
+    pointerType,
     isPrimary: true,
     button: 0,
     buttons: 1,
@@ -166,7 +167,7 @@ async function penNumber(button: Locator, moved = false) {
       element.dispatchEvent(
         new PointerEvent("click", {
           pointerId: 31,
-          pointerType: "pen",
+          pointerType: p.pointerType,
           clientX: p.x,
           clientY: p.y,
           detail: 1,
@@ -174,108 +175,48 @@ async function penNumber(button: Locator, moved = false) {
           cancelable: true,
         }),
       ),
-    to,
+    { ...to, pointerType },
   );
 }
 
-test("연필·획 지우기·실행 취소·다시 실행과 번호의 touch/pen/mouse/keyboard 입력 경계를 유지한다", async ({
-  page,
-}) => {
+test("통합 화면은 전환 없이 연필·손가락 번호·지우개와 실행 취소를 구분한다",async({page})=>{
   await begin(page);
-  await expect(
-    page.getByRole("button", { name: "이동·읽기", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  expect(
-    await surface(page)
-      .locator(".ink-layer")
-      .evaluate((el) => getComputedStyle(el).pointerEvents),
-  ).toBe("none");
-  await penStroke(page);
+  await expect(page.getByRole("button",{name:"연필",exact:true})).toHaveAttribute("aria-pressed","true");
+  await expect(page.getByRole("button",{name:"이동·읽기",exact:true})).toHaveCount(0);
+  expect(await surface(page).locator(".ink-layer").evaluate(el=>getComputedStyle(el).pointerEvents)).toBe("none");
+  expect(await surface(page).evaluate(el=>getComputedStyle(el).touchAction)).toBe("pinch-zoom");
   await expect(strokes(page)).toHaveCount(0);
-  await tool(page, "연필");
-  expect(
-    await surface(page)
-      .locator(".ink-layer")
-      .evaluate((el) => getComputedStyle(el).touchAction),
-  ).toBe("none");
-  await penStroke(page);
-  await expect(strokes(page, "body")).toHaveCount(1);
-  await penStroke(page, { id: "choice-1", pointerId: 2 });
-  await expect(strokes(page, "choice-1")).toHaveCount(1);
-  await saved(page);
-  expect(
-    Object.values((await active(page)).responses).filter((x) => x != null),
-  ).toHaveLength(0);
-  const one = page.getByRole("button", { name: "1번 선택", exact: true });
-  const two = page.getByRole("button", { name: "2번 선택", exact: true });
-  await two.tap();
-  await expect(two).toHaveAttribute("aria-pressed", "false");
-  await penNumber(one);
-  await expect(one).toHaveAttribute("aria-pressed", "true");
-  await penNumber(two, true);
-  await expect(one).toHaveAttribute("aria-pressed", "true");
-  await expect(two).toHaveAttribute("aria-pressed", "false");
-  await two.click();
-  await expect(two).toHaveAttribute("aria-pressed", "true");
-  await page.keyboard.press("3");
-  await expect(
-    page.getByRole("button", { name: "3번 선택", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await tool(page, "지우개");
-  const layer = surface(page).locator(".ink-layer");
-  // Erase through the middle of the known body stroke, without touching the choice's surface.
-  // Scrolling to the number controls may have moved the page: convert the original local stroke back to the current surface.
-  const box = (await layer.boundingBox())!;
-  const common = {
-    pointerId: 5,
-    pointerType: "pen",
-    isPrimary: true,
-    buttons: 1,
-    button: 0,
-    bubbles: true,
-    pressure: 0.5,
-  };
-  await layer.dispatchEvent("pointerdown", {
-    ...common,
-    clientX: box.x + box.width * 0.45,
-    clientY: box.y + box.height * 0.35 + Math.min(4, box.height * 0.04),
-  });
-  await layer.dispatchEvent("pointerup", {
-    ...common,
-    clientX: box.x + box.width * 0.45,
-    clientY: box.y + box.height * 0.35 + Math.min(4, box.height * 0.04),
-    buttons: 0,
-    pressure: 0,
-  });
-  await expect(strokes(page, "body")).toHaveCount(0);
-  await expect(strokes(page, "choice-1")).toHaveCount(1);
-  await tool(page, "필기 실행 취소");
-  await expect(strokes(page, "body")).toHaveCount(1);
-  await tool(page, "필기 다시 실행");
-  await expect(strokes(page, "body")).toHaveCount(0);
-  await tool(page, "현재 문항 필기 지우기");
-  await expect(strokes(page)).toHaveCount(0);
-  await tool(page, "필기 실행 취소");
-  await expect(strokes(page, "choice-1")).toHaveCount(1);
-  await tool(page, "이동·읽기");
-  expect(
-    await surface(page)
-      .locator(".ink-layer")
-      .evaluate((el) => getComputedStyle(el).pointerEvents),
-  ).toBe("none");
-  expect(
-    await page.evaluate(() => [
-      getComputedStyle(document.documentElement).touchAction,
-      getComputedStyle(document.body).touchAction,
-    ]),
-  ).not.toContain("none");
-  await page.getByRole("button", { name: "4번 선택", exact: true }).tap();
-  await expect(
-    page.getByRole("button", { name: "4번 선택", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+  await penStroke(page);await expect(strokes(page,"body")).toHaveCount(1);
+  await penStroke(page,{id:"choice-1",pointerId:2});await expect(strokes(page,"choice-1")).toHaveCount(1);await saved(page);
+  expect(Object.values((await active(page)).responses).filter(x=>x!=null)).toHaveLength(0);
+  const one=page.getByRole("button",{name:"1번 선택",exact:true}),two=page.getByRole("button",{name:"2번 선택",exact:true});
+  // A new intentional finger tap after pen-up is allowed without a mode switch.
+  await two.tap();await expect(two).toHaveAttribute("aria-pressed","true");
+  await penNumber(one);await expect(one).toHaveAttribute("aria-pressed","true");
+  await penNumber(two,true);await expect(one).toHaveAttribute("aria-pressed","true");await expect(two).toHaveAttribute("aria-pressed","false");
+  // Exactly 8 CSS px already starts finger pan, so it must also reject a number click.
+  for (const pointerType of ["pen", "touch"]) {
+    await penNumber(two, 8, pointerType);
+    await expect(one).toHaveAttribute("aria-pressed", "true");
+    await expect(two).toHaveAttribute("aria-pressed", "false");
+  }
+  await two.click();await expect(two).toHaveAttribute("aria-pressed","true");
+  await page.keyboard.press("3");await expect(page.getByRole("button",{name:"3번 선택",exact:true})).toHaveAttribute("aria-pressed","true");
+  await tool(page,"지우개");
+  const layer=surface(page).locator(".ink-layer"),box=(await layer.boundingBox())!;
+  const common={pointerId:5,pointerType:"pen",isPrimary:true,buttons:1,button:0,bubbles:true,pressure:0.5};
+  await layer.dispatchEvent("pointerdown",{...common,clientX:box.x+box.width*0.45,clientY:box.y+box.height*0.35+Math.min(4,box.height*0.04)});
+  await layer.dispatchEvent("pointerup",{...common,clientX:box.x+box.width*0.45,clientY:box.y+box.height*0.35+Math.min(4,box.height*0.04),buttons:0,pressure:0});
+  await expect(strokes(page,"body")).toHaveCount(0);await expect(strokes(page,"choice-1")).toHaveCount(1);
+  await tool(page,"필기 실행 취소");await expect(strokes(page,"body")).toHaveCount(1);
+  await tool(page,"필기 다시 실행");await expect(strokes(page,"body")).toHaveCount(0);
+  await tool(page,"현재 문항 필기 지우기");await expect(strokes(page)).toHaveCount(0);
+  await tool(page,"필기 실행 취소");await expect(strokes(page,"choice-1")).toHaveCount(1);
+  await tool(page,"연필");
+  expect(await page.evaluate(()=>[getComputedStyle(document.documentElement).touchAction,getComputedStyle(document.body).touchAction])).not.toContain("none");
+  await page.getByRole("button",{name:"4번 선택",exact:true}).tap();await expect(page.getByRole("button",{name:"4번 선택",exact:true})).toHaveAttribute("aria-pressed","true");
   expect((await state(page)).attempts).toHaveLength(0);
 });
-
 test("coalesced events 미지원·pressure0 fallback과 pointercancel/lostcapture 뒤 붙은 펜 없이 저장한다", async ({
   page,
 }) => {
@@ -379,7 +320,7 @@ test("문항 왕복·새로고침·스크롤은 획을 복원하고 재배치별
   await expect(surface(page)).toHaveAttribute("data-ink-ready", "true");
   await expect(strokes(page, "body")).toHaveCount(1);
   await expect(
-    page.getByRole("button", { name: "이동·읽기", exact: true }),
+    page.getByRole("button", { name: "연필", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(strokes(page, "body").first().locator("path")).toHaveAttribute(
     "d",
@@ -509,4 +450,142 @@ test("필기 저장 실패를 별도 표시하고 답안·타이머·기존 기�
   ).toHaveAttribute("aria-pressed", "true");
   await expect(strokes(page)).toHaveCount(0);
   expect((await active(page)).deadlineAt).toBe(first.deadlineAt);
+});
+
+async function installNativeSpy(page: Page) {
+  await page.evaluate(()=>{
+    (window as any).__nativeInkEvents=[];
+    for(const type of ["pointerdown","pointermove","pointerup","pointercancel"])
+      document.addEventListener(type,event=>{const e=event as PointerEvent;(window as any).__nativeInkEvents.push({type:e.type,pointerType:e.pointerType,id:e.pointerId,buttons:e.buttons});},true);
+  });
+}
+async function nativeSwipe(page: Page, cdp: any, id=81) {
+  await page.evaluate(()=>scrollTo(0,0));
+  const box=(await surface(page).boundingBox())!;
+  const x=Math.round(box.x+Math.min(box.width*0.5,500)),start=Math.round(Math.min(430,box.y+Math.min(box.height-5,45)));
+  const before=await page.evaluate(()=>scrollY);
+  await cdp.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{id,x,y:start,radiusX:5,radiusY:5,force:0.5}]});
+  for(let i=1;i<=8;i++)await cdp.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{id,x,y:start-i*18,radiusX:5,radiusY:5,force:0.5}]});
+  await cdp.send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});
+  await expect.poll(()=>page.evaluate(()=>scrollY)).toBeGreaterThan(before+40);
+  return {x,start,before,after:await page.evaluate(()=>scrollY)};
+}
+
+test("Chromium 원시 터치는 기본 화면에서 직접 스크롤하고 수직 펜 입력은 브라우저에 빼앗기지 않는다",async({page})=>{
+  await page.setViewportSize({width:1280,height:500});await begin(page);await installNativeSpy(page);
+  const cdp=await page.context().newCDPSession(page);
+  try {
+    await nativeSwipe(page,cdp);
+    await expect(strokes(page)).toHaveCount(0);
+    expect(Object.values((await active(page)).responses).filter(x=>x!=null)).toHaveLength(0);
+    await page.evaluate(()=>scrollTo(0,0));
+    const layer=surface(page).locator(".ink-layer"),box=(await layer.boundingBox())!;
+    const x=Math.round(box.x+box.width*0.5),y=Math.round(box.y+Math.min(20,box.height*0.2));
+    const before=await page.evaluate(()=>scrollY);
+    await cdp.send("Input.dispatchMouseEvent",{type:"mouseMoved",pointerType:"pen",x,y,buttons:0});
+    await expect(strokes(page)).toHaveCount(0);
+    await cdp.send("Input.dispatchMouseEvent",{type:"mousePressed",pointerType:"pen",x,y,button:"left",buttons:1,force:0.5});
+    for(let i=1;i<=4;i++)await cdp.send("Input.dispatchMouseEvent",{type:"mouseMoved",pointerType:"pen",x:x+i,y:y+i*8,buttons:1,force:0.6});
+    await cdp.send("Input.dispatchMouseEvent",{type:"mouseReleased",pointerType:"pen",x:x+4,y:y+32,button:"left",buttons:0,force:0});
+    await expect(strokes(page,"body")).toHaveCount(1);await saved(page);
+    expect(await page.evaluate(()=>scrollY)).toBe(before);
+    const events=await page.evaluate(()=> (window as any).__nativeInkEvents);
+    expect(events.some((e:any)=>e.pointerType==="touch"&&e.type==="pointermove")).toBe(true);
+    expect(events.some((e:any)=>e.pointerType==="pen"&&e.type==="pointermove"&&e.buttons===1)).toBe(true);
+    expect(events.filter((e:any)=>e.pointerType==="pen"&&e.type==="pointercancel")).toHaveLength(0);
+    expect(await surface(page).evaluate(el=>getComputedStyle(el).touchAction)).toBe("pinch-zoom");
+  } finally {await cdp.detach();}
+});
+
+test("Chromium 다중 터치·원시 pointercancel과 펜 접촉 중 손바닥 뒤에도 새 손가락 스크롤이 복구된다",async({page})=>{
+  await page.setViewportSize({width:1280,height:500});await begin(page);await installNativeSpy(page);
+  const cdp=await page.context().newCDPSession(page);
+  try {
+    const layer=surface(page).locator(".ink-layer"),box=(await layer.boundingBox())!;
+    const x=Math.round(box.x+box.width*0.5),y=Math.round(Math.min(420,box.y+Math.min(45,box.height-5)));
+    const before=await page.evaluate(()=>scrollY);
+    await cdp.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{id:91,x:x-20,y,radiusX:5,radiusY:5,force:0.5}]});
+    await cdp.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{id:91,x:x-20,y,radiusX:5,radiusY:5,force:0.5},{id:92,x:x+20,y,radiusX:5,radiusY:5,force:0.5}]});
+    for(let i=1;i<=3;i++)await cdp.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{id:91,x:x-20-i*5,y:y-i*2,radiusX:5,radiusY:5,force:0.5},{id:92,x:x+20+i*5,y:y+i*2,radiusX:5,radiusY:5,force:0.5}]});
+    await cdp.send("Input.dispatchTouchEvent",{type:"touchCancel",touchPoints:[]});
+    await expect.poll(()=>page.evaluate(()=> (window as any).__nativeInkEvents.filter((e:any)=>e.pointerType==="touch"&&e.type==="pointercancel").length)).toBeGreaterThan(0);
+    await cdp.send("Emulation.setPageScaleFactor",{pageScaleFactor:1});
+    await expect(strokes(page)).toHaveCount(0);
+    expect(Object.values((await active(page)).responses).filter(x=>x!=null)).toHaveLength(0);
+    await nativeSwipe(page,cdp,93);
+    // Keep a synthetic pen contact active while native touch contacts arrive: app palm filtering, not OS-level palm rejection.
+    await page.evaluate(()=>scrollTo(0,0));
+    const now=(await layer.boundingBox())!,px=now.x+Math.min(200,now.width*0.3),py=now.y+Math.min(25,now.height*0.3);
+    await layer.dispatchEvent("pointerdown",{pointerId:501,pointerType:"pen",isPrimary:true,buttons:1,button:0,clientX:px,clientY:py,pressure:0.5});
+    const palmBefore=await page.evaluate(()=>scrollY);
+    await cdp.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{id:94,x:Math.round(px+30),y:Math.round(py+5),radiusX:12,radiusY:12,force:0.5}]});
+    await cdp.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{id:94,x:Math.round(px+30),y:Math.round(py-80),radiusX:12,radiusY:12,force:0.5}]});
+    expect(await page.evaluate(()=>scrollY)).toBe(palmBefore);
+    await layer.dispatchEvent("pointerup",{pointerId:501,pointerType:"pen",isPrimary:true,buttons:0,button:0,clientX:px,clientY:py,pressure:0});
+    await cdp.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{id:94,x:Math.round(px+30),y:Math.round(py-120),radiusX:12,radiusY:12,force:0.5}]});
+    expect(await page.evaluate(()=>scrollY)).toBe(palmBefore);
+    await cdp.send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});
+    await expect(strokes(page,"body")).toHaveCount(1);
+    expect(Object.values((await active(page)).responses).filter(x=>x!=null)).toHaveLength(0);
+    await nativeSwipe(page,cdp,95);
+    await expect(strokes(page,"body")).toHaveCount(1);
+  } finally {await cdp.detach();}
+});
+
+test("Chromium 손가락 번호 드래그·취소는 답을 고르지 않고 새 탭은 선택한다", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 500 });
+  await begin(page);
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const one = page.getByRole("button", { name: "1번 선택", exact: true });
+    await one.scrollIntoViewIfNeeded();
+    const box = (await one.boundingBox())!;
+    const x = Math.round(box.x + box.width / 2), y = Math.round(box.y + box.height / 2);
+    const before = await page.evaluate(() => scrollY);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ id: 301, x, y, radiusX: 5, radiusY: 5, force: 0.5 }] });
+    for (let i = 1; i <= 6; i++)
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ id: 301, x, y: y - i * 15, radiusX: 5, radiusY: 5, force: 0.5 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(before + 30);
+    await expect(one).toHaveAttribute("aria-pressed", "false");
+    expect(Object.values((await active(page)).responses).filter(value => value != null)).toHaveLength(0);
+    await expect(strokes(page)).toHaveCount(0);
+    await one.tap();
+    await expect(one).toHaveAttribute("aria-pressed", "true");
+
+    const two = page.getByRole("button", { name: "2번 선택", exact: true });
+    await two.scrollIntoViewIfNeeded();
+    const second = (await two.boundingBox())!;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ id: 302, x: Math.round(second.x + second.width / 2), y: Math.round(second.y + second.height / 2), radiusX: 5, radiusY: 5, force: 0.5 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    await expect(two).toHaveAttribute("aria-pressed", "false");
+    await expect(one).toHaveAttribute("aria-pressed", "true");
+    await two.tap();
+    await expect(two).toHaveAttribute("aria-pressed", "true");
+    await expect(strokes(page)).toHaveCount(0);
+  } finally {
+    await cdp.detach();
+  }
+});
+
+test("두 손가락 뒤 하나가 남아도 수동 이동을 재개하지 않고 모든 손을 뗀 뒤 복구한다", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 500 });
+  await begin(page);
+  const area = surface(page);
+  const box = (await area.boundingBox())!;
+  const x = box.x + box.width / 2, y = box.y + Math.min(40, box.height / 2);
+  const common = { pointerType: "touch", buttons: 1, button: 0, bubbles: true, cancelable: true, pressure: 0.5 };
+  const before = await page.evaluate(() => scrollY);
+  await area.dispatchEvent("pointerdown", { ...common, pointerId: 401, isPrimary: true, clientX: x, clientY: y });
+  await area.dispatchEvent("pointerdown", { ...common, pointerId: 402, isPrimary: false, clientX: x + 30, clientY: y });
+  await area.dispatchEvent("pointermove", { ...common, pointerId: 401, isPrimary: true, clientX: x, clientY: y - 60 });
+  await area.dispatchEvent("pointerup", { ...common, pointerId: 402, isPrimary: false, clientX: x + 30, clientY: y, buttons: 0, pressure: 0 });
+  await area.dispatchEvent("pointermove", { ...common, pointerId: 401, isPrimary: true, clientX: x, clientY: y - 130 });
+  expect(await page.evaluate(() => scrollY)).toBe(before);
+  await area.dispatchEvent("pointerup", { ...common, pointerId: 401, isPrimary: true, clientX: x, clientY: y - 130, buttons: 0, pressure: 0 });
+  await expect(strokes(page)).toHaveCount(0);
+  expect(Object.values((await active(page)).responses).filter(value => value != null)).toHaveLength(0);
+  const cdp = await page.context().newCDPSession(page);
+  try { await nativeSwipe(page, cdp, 403); }
+  finally { await cdp.detach(); }
 });

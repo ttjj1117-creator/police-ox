@@ -19,6 +19,8 @@ export interface QuizChromeProps {
   menuItems: QuizMenuItem[];
   fontScale?: number;
   onFontScaleChange?: (scale: number) => void;
+  readingFlow?: boolean;
+  onReadingFlowChange?: (value: boolean) => void;
 }
 export function QuizChrome({
   subjectLabel,
@@ -34,6 +36,8 @@ export function QuizChrome({
   menuItems,
   fontScale = 1,
   onFontScaleChange,
+  readingFlow = true,
+  onReadingFlowChange,
 }: QuizChromeProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const fontScales = [1, 1.25, 1.5, 2];
@@ -107,6 +111,19 @@ export function QuizChrome({
               글씨 +
             </button>
           </div>
+        )}
+        {onReadingFlowChange && (
+          <button
+            type="button"
+            className="quiz-flow-trigger"
+            aria-label="줄바꿈 방식 전환"
+            aria-pressed={readingFlow}
+            disabled={busy}
+            title="자동은 물리적 줄바꿈을 화면 폭에 맞춥니다. 원문은 원래 줄바꿈을 표시합니다."
+            onClick={() => onReadingFlowChange(!readingFlow)}
+          >
+            줄바꿈 {readingFlow ? "자동" : "원문"}
+          </button>
         )}
         {mode === "exam" && (
           <div

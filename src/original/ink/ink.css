@@ -2,6 +2,7 @@
   position: relative;
   min-width: 0;
   font: inherit;
+  touch-action: pinch-zoom;
 }
 .ink-content {
   display: flow-root;
@@ -19,17 +20,8 @@
 .ink-layer[data-layout-pending="true"] {
   visibility: hidden;
 }
-.ink-surface[data-ink-mode="read"] {
-  touch-action: auto;
-}
-.ink-surface:not([data-ink-mode="read"]) > .ink-layer {
-  pointer-events: auto;
-  touch-action: none;
-  cursor: crosshair;
-}
-.ink-surface:not([data-ink-mode="read"]) > .ink-content {
-  user-select: none;
-  -webkit-user-select: none;
+.original-app.is-quiz .original-choice-button.ink-choice-button {
+  touch-action: pinch-zoom;
 }
 .original-app.is-quiz .ink-tools {
   border: 1px solid #d8e1d5;
