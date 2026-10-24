@@ -32,7 +32,13 @@ function referencedItem(key: string): string {
 }
 
 /** Preview and apply use this same pure operation. No storage or version bump. */
-export function removeItems(state: State, requested: ReadonlySet<string>) {
+export function removeItems(
+  state: State,
+  requested: ReadonlySet<string>,
+  {
+    preserveLearningRecords = false,
+  }: { preserveLearningRecords?: boolean } = {},
+) {
   if (state.sessions.some((session) => session.status === "active"))
     throw new Error("진행 중 세션을 종료한 뒤 삭제하세요.");
   const next = structuredClone(state);
@@ -55,7 +61,8 @@ export function removeItems(state: State, requested: ReadonlySet<string>) {
   };
   if (!ids.size) return { state: next, counts };
   next.dataset.items = next.dataset.items.filter((item) => !ids.has(item.id));
-  next.attempts = next.attempts.filter((attempt) => !ids.has(attempt.itemId));
+  if (!preserveLearningRecords)
+    next.attempts = next.attempts.filter((attempt) => !ids.has(attempt.itemId));
   counts.attempts = state.attempts.length - next.attempts.length;
   for (const key of Object.keys(next.marks)) {
     if (ids.has(referencedItem(key))) {
@@ -68,38 +75,39 @@ export function removeItems(state: State, requested: ReadonlySet<string>) {
   const answers = new Set(
     next.attempts.map((a) => JSON.stringify([a.sessionId, a.itemId])),
   );
-  next.sessions = next.sessions.flatMap((session) => {
-    const removedSnapshots = session.items.filter((item) => ids.has(item.id));
-    if (!removedSnapshots.length) return [session];
-    counts.snapshots += removedSnapshots.length;
-    // Balanced allocations count every selected snapshot, even unanswered ones.
-    if (session.selection.mode === "balanced") {
-      for (const item of removedSnapshots) {
-        const key = JSON.stringify([
-          session.selection.subjectId,
-          session.selection.basis,
-          item.primaryUnitId ?? "unclassified",
-        ]);
-        allocationsToRemove.set(key, (allocationsToRemove.get(key) ?? 0) + 1);
+  if (!preserveLearningRecords)
+    next.sessions = next.sessions.flatMap((session) => {
+      const removedSnapshots = session.items.filter((item) => ids.has(item.id));
+      if (!removedSnapshots.length) return [session];
+      counts.snapshots += removedSnapshots.length;
+      // Balanced allocations count every selected snapshot, even unanswered ones.
+      if (session.selection.mode === "balanced") {
+        for (const item of removedSnapshots) {
+          const key = JSON.stringify([
+            session.selection.subjectId,
+            session.selection.basis,
+            item.primaryUnitId ?? "unclassified",
+          ]);
+          allocationsToRemove.set(key, (allocationsToRemove.get(key) ?? 0) + 1);
+        }
       }
-    }
-    const preceding = session.items
-      .slice(0, session.index)
-      .filter((item) => !ids.has(item.id)).length;
-    session.items = session.items.filter((item) => !ids.has(item.id));
-    if (!session.items.length) {
-      counts.sessions++;
-      return [];
-    }
-    // Keep the session ID and remaining snapshots so surviving attempts keep
-    // their original sessionId and subject/statistics attribution.
-    session.index = Math.min(preceding, session.items.length - 1);
-    session.revealed = answers.has(
-      JSON.stringify([session.id, session.items[session.index].id]),
-    );
-    counts.sessionsPruned++;
-    return [session];
-  });
+      const preceding = session.items
+        .slice(0, session.index)
+        .filter((item) => !ids.has(item.id)).length;
+      session.items = session.items.filter((item) => !ids.has(item.id));
+      if (!session.items.length) {
+        counts.sessions++;
+        return [];
+      }
+      // Keep the session ID and remaining snapshots so surviving attempts keep
+      // their original sessionId and subject/statistics attribution.
+      session.index = Math.min(preceding, session.items.length - 1);
+      session.revealed = answers.has(
+        JSON.stringify([session.id, session.items[session.index].id]),
+      );
+      counts.sessionsPruned++;
+      return [session];
+    });
 
   const referencedCycles = new Set(next.sessions.map((s) => s.cycleKey));
   for (const [key, cycle] of Object.entries(next.cycles)) {
@@ -115,7 +123,8 @@ export function removeItems(state: State, requested: ReadonlySet<string>) {
       candidates.length -
       remaining.length;
     if (
-      !next.dataset.items.length ||
+      (!next.dataset.items.length &&
+        (!preserveLearningRecords || !referencedCycles.has(key))) ||
       (removedTokens && !candidates.length && !referencedCycles.has(key))
     ) {
       delete next.cycles[key];

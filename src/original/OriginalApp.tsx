@@ -28,7 +28,7 @@ import {
   subjectLabels,
   units,
 } from "./validation";
-import { Repository } from "../data/repository";
+import { useOxSync } from "../ox-sync/controller";
 import {
   download,
   MAX_FILE_BYTES,
@@ -76,7 +76,6 @@ type Pending = {
 };
 export type IncomingFile = { file: File; kind: "import" | "restore" };
 const repository = new OriginalRepository();
-const oxRepository = new Repository();
 const names: [Page, string][] = [
   ["home", "학습 홈"],
   ["study", "일반 학습"],
@@ -108,11 +107,14 @@ export function OriginalApp({
   );
   const [envelope, setEnvelope] = useState<Envelope | null>(null);
   const cloud = useCloudSync(namespace);
+  const oxCloud = useOxSync(namespace);
+  const oxRepository = oxCloud.controller;
   const [answerSheetOpen, setAnswerSheetOpen] = useState(false);
   const envelopeRef = useRef<Envelope | null>(null);
   const [page, setPage] = useState<Page>(() =>
     typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("auth") === "callback"
+    (new URLSearchParams(window.location.search).get("auth") === "callback" ||
+      new URLSearchParams(window.location.search).get("panel") === "cloud")
       ? "cloud"
       : "home",
   );
@@ -186,7 +188,9 @@ export function OriginalApp({
             : didExpire
               ? "result"
               : new URLSearchParams(window.location.search).get("auth") ===
-                  "callback"
+                    "callback" ||
+                  new URLSearchParams(window.location.search).get("panel") ===
+                    "cloud"
                 ? "cloud"
                 : "home",
         );
@@ -587,6 +591,8 @@ export function OriginalApp({
         value.format === undefined &&
         value.schemaVersion === 1
       ) {
+        if (!oxCloud.ready)
+          throw new Error("OX 저장 영역을 준비한 뒤 다시 가져오세요.");
         const ox = await oxRepository.load(namespace);
         if (ox.state.sessions.some((s) => s.status === "active"))
           throw new Error("OX 이어 풀기를 종료한 뒤 가져오세요.");
@@ -612,11 +618,15 @@ export function OriginalApp({
         // Validate every record before presenting destructive replacement.
         const restored = await validateFullBackup(value, namespace);
         if (cloud.ownerId && namespace === "real") {
+          if (!oxCloud.ready)
+            throw new Error("OX 저장 영역을 준비한 뒤 다시 가져오세요.");
           const preview = await cloud.controller.importPreview(value);
+          const oxPreview = await oxRepository.importPreview(value);
           stagePending({
-            description: `계정 기록에 병합: 문제 ${preview.questions}문항 · 완료·종료 세션 ${preview.sessions}개 · 응답 ${preview.attempts}건 · 내용 충돌 ${preview.conflicts}건. 진행 중 세션은 전송하지 않으며 원본 전체 백업은 별도로 보관합니다.`,
+            description: `계정 기록에 병합: 원문 ${preview.questions}문항 · 종료 세션 ${preview.sessions}개 · 응답 ${preview.attempts}건 · 충돌 ${preview.conflicts}건. OX ${oxPreview.items}지문 · 종료 세션 ${oxPreview.sessions}개 · 응답 ${oxPreview.attempts}건 · 충돌 ${oxPreview.conflicts}건. 진행 중 세션은 전송하지 않습니다. 두 학습 기록은 구분하여 합치고 원본 백업은 보관합니다.`,
             apply: async () => {
               await cloud.controller.connectExisting(preview.state, value);
+              await oxRepository.connectExisting(oxPreview.state, value);
               setPending(null);
               setNotice(
                 "기존 계정 기록과 합쳤습니다. 동기화 상태에서 전송 결과를 확인하세요.",
@@ -648,8 +658,24 @@ export function OriginalApp({
           },
         });
       } else if (kind === "restore" && value.backupSchemaVersion === 1) {
-        const restored = validateBackup(value, namespace),
-          ox = await oxRepository.load(namespace);
+        const restored = validateBackup(value, namespace);
+        if (cloud.ownerId && namespace === "real") {
+          if (!oxCloud.ready)
+            throw new Error("OX 저장 영역을 준비한 뒤 다시 가져오세요.");
+          const preview = await oxRepository.importPreview(value);
+          stagePending({
+            description: `OX 계정 기록에 병합: ${preview.items}지문 · 종료 세션 ${preview.sessions}개 · 응답 ${preview.attempts}건 · 내용 충돌 ${preview.conflicts}건. 기존 기록과 원문 객관식은 보존하며 진행 중 세션은 전송하지 않습니다.`,
+            apply: async () => {
+              await oxRepository.connectExisting(preview.state, value);
+              setPending(null);
+              setNotice(
+                "OX 계정 기록과 합쳤습니다. OX 동기화에서 전송 결과를 확인하세요.",
+              );
+            },
+          });
+          return;
+        }
+        const ox = await oxRepository.load(namespace);
         if (ox.state.sessions.some((s) => s.status === "active"))
           throw new Error("OX 이어 풀기를 종료한 뒤 복구하세요.");
         stagePending({
@@ -1058,6 +1084,7 @@ export function OriginalApp({
               namespace={namespace}
               busy={busy}
               onBackup={exportBackup}
+              oxStatus={oxCloud}
             />
           )}
           {["study", "round", "exam", "review"].includes(page) && (

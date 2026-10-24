@@ -1,3 +1,4 @@
+import { holdSuccessors, nextSendable } from "./queue";
 import { useEffect, useSyncExternalStore } from "react";
 import {
   activeSession,
@@ -73,6 +74,8 @@ export class CloudController {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running: Promise<void> | null = null;
   private initialization: Promise<void> | null = null;
+  private refreshPromise: Promise<AuthSession> | null = null;
+  private signingOut = false;
   constructor(
     store = new SyncAccountStore(),
     transport?: SupabaseTransport,
@@ -168,6 +171,10 @@ export class CloudController {
     });
   }
   async sendCode(email: string) {
+    if (!this.view.auth && (await this.unlinkedOxActive()))
+      throw new Error(
+        "진행 중 OX 학습을 종료한 뒤 로그인하세요. 기존 답안은 이 기기에 보관됩니다.",
+      );
     if (!this.transport) throw new Error("동기화 연결 설정이 필요합니다.");
     await this.transport.sendCode(
       email.trim(),
@@ -187,6 +194,8 @@ export class CloudController {
     await this.establishSession(auth);
   }
   private async establishSession(auth: AuthSession) {
+    if (this.signingOut)
+      throw new Error("로그아웃이 끝난 뒤 다시 로그인하세요.");
     if (this.running) throw new Error("동기화가 끝난 뒤 다시 로그인하세요.");
     const stored = await this.store.getValue<AuthSession>(this.authKey());
     const previous = stored?.user?.id ? stored : this.view.auth;
@@ -200,35 +209,78 @@ export class CloudController {
       throw new Error(
         "이 기기에 진행 중인 학습이 있습니다. 먼저 학습을 종료한 뒤 새 로그인 메일을 요청하세요.",
       );
+    if (!previous && (await this.unlinkedOxActive()))
+      throw new Error(
+        "이 기기에 진행 중인 OX 학습이 있습니다. 먼저 학습을 종료한 뒤 새 로그인 메일을 요청하세요.",
+      );
     await this.store.setValue(this.authKey(), auth);
     this.emit({ auth, ownerId: this.owner(auth), error: "" });
     await this.reload();
     this.schedule();
   }
+  private async unlinkedOxActive() {
+    const saved = await this.store.getValue<{
+      state?: { sessions?: { status: string }[] };
+    }>("real");
+    return (
+      Array.isArray(saved?.state?.sessions) &&
+      saved.state.sessions.some((s) => s.status === "active")
+    );
+  }
+  async linkedOxStatus() {
+    const owner = this.view.ownerId;
+    if (!owner) return { active: false, pending: 0 };
+    const [saved, meta] = await Promise.all([
+      this.store.getValue<{ state?: { sessions?: { status: string }[] } }>(
+        "ox:real:user:" + owner,
+      ),
+      this.store.getValue<{ outbox?: unknown[] }>("ox-sync:real:user:" + owner),
+    ]);
+    return {
+      active:
+        Array.isArray(saved?.state?.sessions) &&
+        saved.state.sessions.some((s) => s.status === "active"),
+      pending: Array.isArray(meta?.outbox) ? meta.outbox.length : 0,
+    };
+  }
   async logout() {
+    if (this.signingOut) return;
     const auth = this.view.auth;
     if (!auth || !this.transport) return;
-    const ownerId = this.view.ownerId!;
     if (this.running) throw new Error("동기화가 끝난 뒤 로그아웃하세요.");
+    const ox = await this.linkedOxStatus();
+    const original = await this.store.read(this.view.ownerId!);
+    if (ox.active || activeSession(original.state))
+      throw new Error(
+        "진행 중인 원문·OX 학습을 종료한 뒤 로그아웃하세요. 답안은 이 기기에 보관됩니다.",
+      );
+    this.signingOut = true;
     try {
-      if (navigator.onLine) await this.transport.logout(auth);
-    } catch {
-      /* Local signout still closes credentials; queued records remain partitioned. */
+      // Both study modes share one refresh operation. A pending refresh may not
+      // restore credentials after local signout has closed this account.
+      await this.refreshPromise?.catch(() => undefined);
+      try {
+        if (navigator.onLine)
+          await this.transport.logout(this.view.auth ?? auth);
+      } catch {
+        /* Local signout preserves the account's durable state and outbox. */
+      }
+      await this.store.setValue(this.authKey(), null);
+      this.emit({
+        auth: null,
+        ownerId: null,
+        meta: null,
+        conflictIds: [],
+        pending: 0,
+        generation: 0,
+        lastSuccess: null,
+        error: "",
+        message:
+          "로그아웃했습니다. 원문·OX 계정의 미전송 기록은 이 기기에 보관되어 같은 계정으로 다시 로그인하면 전송됩니다.",
+      });
+    } finally {
+      this.signingOut = false;
     }
-    await this.store.setValue(this.authKey(), null);
-    this.emit({
-      auth: null,
-      ownerId: null,
-      meta: null,
-      conflictIds: [],
-      pending: 0,
-      generation: 0,
-      lastSuccess: null,
-      error: "",
-      message:
-        "로그아웃했습니다. 계정의 미전송 기록은 이 기기에 보관되어 다시 로그인하면 전송됩니다.",
-    });
-    void ownerId;
   }
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
@@ -254,17 +306,32 @@ export class CloudController {
       conflictIds: getOrderConflictIds(next.meta.projection),
     });
   }
+  /** Shared by original and OX sync; never persist a second credential copy. */
+  async getAuth(): Promise<AuthSession> {
+    return this.auth();
+  }
   private async auth(): Promise<AuthSession> {
-    let auth = this.view.auth;
+    const auth = this.view.auth;
+    if (this.signingOut) throw new Error("로그아웃 중입니다.");
     if (!auth || !this.transport) throw new Error("로그인이 필요합니다.");
-    if (auth.expires_at <= Date.now() / 1000 + 60) {
-      auth = await this.transport.refresh(auth);
-      if (this.view.auth?.user.id !== auth.user.id)
-        throw new Error("계정이 변경되었습니다. 다시 로그인하세요.");
-      await this.store.setValue(this.authKey(), auth);
-      this.emit({ auth });
+    if (auth.expires_at > Date.now() / 1000 + 60) return auth;
+    if (!this.refreshPromise) {
+      this.refreshPromise = (async () => {
+        const fresh = await this.transport!.refresh(auth);
+        if (
+          this.signingOut ||
+          this.view.auth?.user.id !== fresh.user.id ||
+          this.view.auth?.refresh_token !== auth.refresh_token
+        )
+          throw new Error("계정이 변경되었습니다. 다시 로그인하세요.");
+        await this.store.setValue(this.authKey(), fresh);
+        this.emit({ auth: fresh });
+        return fresh;
+      })().finally(() => {
+        this.refreshPromise = null;
+      });
     }
-    return auth;
+    return this.refreshPromise;
   }
   private async commit(
     owner: string,
@@ -336,9 +403,7 @@ export class CloudController {
       await pullAll();
       for (let i = 0; i < 100; i++) {
         const snapshot = await this.store.read(owner),
-          event = snapshot.meta.outbox.find(
-            (e) => !snapshot.meta.failures[e.eventId],
-          );
+          event = nextSendable(snapshot.meta);
         if (!event) break;
         try {
           const wire = await transport.upload(event, auth),
@@ -359,6 +424,11 @@ export class CloudController {
           ) {
             await this.commit(owner, (current) => {
               current.meta.failures[event.eventId] = message(e);
+              holdSuccessors(
+                current.meta,
+                event.eventId,
+                "선행 변경의 버전 충돌로 확인이 필요합니다.",
+              );
               return current;
             });
             continue;
@@ -460,9 +530,7 @@ export class CloudController {
       clock: usableClock(meta.clock),
       order: meta.projection.order,
       markVersions: meta.projection.markVersions,
-      pendingEvents: meta.outbox.filter(
-        (event) => !meta.failures[event.eventId],
-      ),
+      pendingEvents: meta.outbox,
     };
   }
   async connectExisting(imported: OriginalState, source?: unknown) {
@@ -578,10 +646,13 @@ export class CloudController {
       if (next.kind === "mark")
         next.payload.baseMarkVersion =
           current.meta.projection.markVersions[next.payload.questionId] ?? 0;
-      current.meta.outbox = current.meta.outbox.filter(
-        (e) => e.eventId !== eventId,
+      holdSuccessors(
+        current.meta,
+        eventId,
+        "선행 변경을 다시 검토했으므로 이 변경도 최신 내용을 확인하세요.",
       );
-      current.meta.outbox.push(next);
+      const index = current.meta.outbox.findIndex((e) => e.eventId === eventId);
+      current.meta.outbox[index] = next;
       delete current.meta.failures[eventId];
       return current;
     });
@@ -596,6 +667,11 @@ export class CloudController {
       const event = current.meta.outbox.find((e) => e.eventId === eventId);
       if (event?.kind !== "mark" || !current.meta.failures[eventId])
         throw new Error("확인할 표시 변경이 없습니다.");
+      holdSuccessors(
+        current.meta,
+        eventId,
+        "원격 표시를 선택했으므로 남은 표시 변경을 확인하세요.",
+      );
       current.meta.outbox = current.meta.outbox.filter(
         (e) => e.eventId !== eventId,
       );
@@ -643,7 +719,10 @@ export function useCloudSync(namespace: string) {
   );
   return { controller, ...view };
 }
-function useStableController() {
+export function getSharedCloudController(): CloudController {
   if (!singleton) singleton = new CloudController();
-  return [singleton] as const;
+  return singleton;
+}
+function useStableController() {
+  return [getSharedCloudController()] as const;
 }

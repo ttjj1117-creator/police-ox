@@ -93,6 +93,15 @@ class FakeCloud {
             })
           : json({ message: "missing" }, 404);
       }
+      // The shared account panel also starts OX sync. This original-question
+      // fixture has no OX events; keep its namespace empty and independent.
+      if (url.pathname.endsWith("/police_ox_sync_pull"))
+        return json({
+          events: [],
+          cursor: body().p_after,
+          bankVersion: 0,
+          serverTime: new Date().toISOString(),
+        });
       const user = this.users.get(uid) ?? {
         events: [],
         bankVersion: 0,
@@ -228,6 +237,11 @@ async function login(page: Page, email = "owner@example.com") {
     page.getByRole("heading", { name: "원문 기출 학습", exact: true }),
   ).toBeVisible();
   await nav(page, "계정·기기 동기화");
+  // Wait for both account status blocks before interacting lower in the page.
+  // Otherwise the OX startup status can reflow a preview button mid-click.
+  await expect(
+    page.getByRole("region", { name: "OX 동기화 바로가기", exact: true }),
+  ).toContainText("OX 동기화 완료");
 }
 async function stored(page: Page, id = OWNER) {
   return page.evaluate(
