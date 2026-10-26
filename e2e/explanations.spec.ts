@@ -87,7 +87,6 @@ test("제출 후만 등록된 해설·발췌를 오프라인 열람하고 관련
   await expect(p.locator(".explanation-panel")).toHaveCount(0);
   const paper = p.locator('.ink-surface[data-ink-surface="paper"]');
   await expect(paper).toHaveAttribute("data-ink-ready", "true");
-  await p.getByRole("button", { name: "연필", exact: true }).click();
   const b = (await paper.boundingBox())!,
     e = {
       pointerId: 10,
@@ -260,13 +259,11 @@ for (const namespace of ["demo", "real"] as const) {
       };
       q.officialAnswer.status = "final";
     }
-    await p
-      .getByLabel("문제 JSON 가져오기", { exact: true })
-      .setInputFiles({
-        name: "TEST_ONLY_no_explanations.json",
-        mimeType: "application/json",
-        buffer: Buffer.from(JSON.stringify(data)),
-      });
+    await p.getByLabel("문제 JSON 가져오기", { exact: true }).setInputFiles({
+      name: "TEST_ONLY_no_explanations.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(data)),
+    });
     await p.getByRole("button", { name: "확인하고 적용", exact: true }).click();
     await expect(
       p.getByText("검증한 데이터를 저장했습니다.", { exact: true }),
@@ -285,7 +282,6 @@ for (const namespace of ["demo", "real"] as const) {
     await p.getByRole("button", { name: "시작하기", exact: true }).click();
     const paper = p.locator('[data-ink-surface="paper"]');
     await expect(paper).toHaveAttribute("data-ink-ready", "true");
-    await p.getByRole("button", { name: "연필", exact: true }).click();
     const box = (await paper.boundingBox())!;
     const pen = {
       pointerId: 51,
@@ -329,13 +325,15 @@ for (const namespace of ["demo", "real"] as const) {
       before.attempts,
     );
     await expect(
-      p.getByRole("button", { name: "이동·읽기", exact: true }),
+      p.getByRole("button", { name: "연필", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await p.getByRole("button", { name: "학습 종료", exact: true }).click();
     await expect(
       p.getByRole("button", { name: "취소 · 계속 풀기", exact: true }),
     ).toBeFocused();
-    await p.getByRole("button", { name: "취소 · 계속 풀기", exact: true }).click();
+    await p
+      .getByRole("button", { name: "취소 · 계속 풀기", exact: true })
+      .click();
     expect(
       (await storedWithoutExplanations(p, namespace)).sessions[0].status,
     ).toBe("active");

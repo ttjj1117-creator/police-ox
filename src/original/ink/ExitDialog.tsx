@@ -4,13 +4,11 @@ import { useInk } from "./Ink";
 export function QuizExitDialog({
   open,
   exam,
-  sync,
   onCancel,
   onConfirm,
 }: {
   open: boolean;
   exam: boolean;
-  sync: boolean;
   onCancel: () => void;
   onConfirm: () => Promise<void>;
 }) {
@@ -92,7 +90,6 @@ export function QuizExitDialog({
           {exam
             ? "미응답은 0점으로 확정되며 제출 후 답을 바꿀 수 없습니다. 확인 중에도 시험 시간은 계속 흐릅니다."
             : "저장한 답안과 필기는 보존합니다. 답하지 않은 문항은 자동 오답으로 기록하지 않습니다."}
-          {sync ? " 종료 후 기기 동기화를 진행합니다." : ""}
         </p>
         {error && <p role="alert">{error}</p>}
         {error && (

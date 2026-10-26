@@ -1,4 +1,4 @@
-export type InkMode = "read" | "pen" | "eraser";
+export type InkMode = "pen" | "eraser";
 export interface InkIdentity {
   ownerKey: string;
   namespace: "real" | "demo";
@@ -152,7 +152,6 @@ export class InkInputCoordinator {
   private pens = new Set<number>();
   private touches = new Map<number, { palm: boolean; multiple: boolean }>();
   private releasedBlocked = new Map<number, number>();
-  private multiple = false;
   private inkClickUntil = 0;
   constructor(private readonly now = () => Date.now()) {}
   get penActive(): boolean {
@@ -175,27 +174,29 @@ export class InkInputCoordinator {
     if (this.touches.has(id)) return;
     this.releasedBlocked.delete(id);
     this.touches.set(id, {
-      palm: this.penActive || this.hasPalmTouch,
-      multiple: this.multiple,
+      palm: this.penActive,
+      multiple: false,
     });
-    if (this.touches.size > 1) {
-      this.multiple = true;
-      for (const touch of this.touches.values()) touch.multiple = true;
-    }
+    const valid = [...this.touches.values()].filter(
+      (t) => !t.palm && !t.multiple,
+    );
+    if (valid.length > 1) for (const touch of valid) touch.multiple = true;
+  }
+  invalidateTouch(id: number): void {
+    const touch = this.touches.get(id);
+    if (touch) touch.palm = true;
   }
   touchUp(id: number): void {
     const touch = this.touches.get(id);
     if (touch && (touch.palm || touch.multiple))
       this.releasedBlocked.set(id, this.now() + 1000);
     this.touches.delete(id);
-    if (!this.touches.size) this.multiple = false;
     for (const [pointer, expiry] of this.releasedBlocked)
       if (expiry <= this.now()) this.releasedBlocked.delete(pointer);
   }
   touchBlocked(id?: number): boolean {
     return (
       this.penActive ||
-      this.hasPalmTouch ||
       (id !== undefined &&
         (!!this.touches.get(id)?.palm ||
           !!this.touches.get(id)?.multiple ||
@@ -203,13 +204,13 @@ export class InkInputCoordinator {
     );
   }
   palmBlocked(id: number): boolean {
-    return this.penActive || this.hasPalmTouch || !!this.touches.get(id)?.palm;
+    return this.penActive || !!this.touches.get(id)?.palm;
   }
   canPan(id: number): boolean {
     return (
       this.touches.has(id) &&
-      this.touches.size === 1 &&
-      !this.multiple &&
+      [...this.touches.values()].filter((t) => !t.palm && !t.multiple)
+        .length === 1 &&
       !this.touchBlocked(id)
     );
   }
@@ -223,7 +224,6 @@ export class InkInputCoordinator {
     this.pens.clear();
     this.touches.clear();
     this.releasedBlocked.clear();
-    this.multiple = false;
     this.inkClickUntil = 0;
   }
 }
