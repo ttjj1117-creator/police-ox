@@ -152,9 +152,7 @@ export function OriginalApp({
       : savedReadingFlow;
   const oxRepository = oxCloud.controller;
   const [answerSheetOpen, setAnswerSheetOpen] = useState(false);
-  const [exitRequest, setExitRequest] = useState<"finish" | "sync" | null>(
-    null,
-  );
+  const [exitRequest, setExitRequest] = useState(false);
   const [legacyInk, setLegacyInk] = useState(false);
   const envelopeRef = useRef<Envelope | null>(null);
   const [page, setPage] = useState<Page>(() =>
@@ -460,7 +458,7 @@ export function OriginalApp({
     if (page === "quiz") window.scrollTo({ top: 0, left: 0 });
   }, [page, sessionId, session?.index]);
   useEffect(() => {
-    setExitRequest(null);
+    setExitRequest(false);
     setLegacyInk(false);
   }, [page, sessionId, q?.id, session?.status]);
   const attempted =
@@ -1300,7 +1298,7 @@ export function OriginalApp({
                 contentVersion={inkContentVersion}
               >
                 <QuizChrome
-                  onRequestFinish={() => setExitRequest("finish")}
+                  onRequestFinish={() => setExitRequest(true)}
                   finishLabel={
                     session.mode === "exam" ? "시험 제출" : "학습 종료"
                   }
@@ -1353,12 +1351,10 @@ export function OriginalApp({
                   }))}
                 />
                 <QuizExitDialog
-                  open={exitRequest !== null && session.status === "active"}
+                  open={exitRequest && session.status === "active"}
                   exam={session.mode === "exam"}
-                  sync={exitRequest === "sync"}
-                  onCancel={() => setExitRequest(null)}
+                  onCancel={() => setExitRequest(false)}
                   onConfirm={async () => {
-                    const sync = exitRequest === "sync";
                     let completed = false;
                     await mutate(
                       (d) => {
@@ -1366,9 +1362,8 @@ export function OriginalApp({
                       },
                       () => {
                         completed = true;
-                        setExitRequest(null);
+                        setExitRequest(false);
                         setPage("result");
-                        if (sync) void cloud.controller.sync();
                       },
                     );
                     if (!completed)
@@ -1635,26 +1630,16 @@ export function OriginalApp({
                         다음 문항 →
                       </button>
                     </div>
-                    <div className="original-finish">
-                      {namespace === "real" &&
-                        cloud.auth &&
-                        session.status === "active" && (
-                          <button
-                            disabled={busy || cloud.busy}
-                            onClick={() => setExitRequest("sync")}
-                          >
-                            학습 마치고 동기화
-                          </button>
-                        )}
-                      {session.status !== "active" && (
+                    {session.status !== "active" && (
+                      <div className="original-finish">
                         <button
                           className="primary"
                           onClick={() => setPage("result")}
                         >
                           결과 보기
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                   <QuizAnswerSheet
                     open={answerSheetOpen}

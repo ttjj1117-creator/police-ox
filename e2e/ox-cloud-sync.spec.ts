@@ -326,8 +326,12 @@ test("fake service: OX 로그인 전 자료 보존, 두 기기 병합·중복 �
   expect(fake.space(UID, false).events).toHaveLength(0);
   await b.goto("/?view=original&mode=real&panel=cloud");
   await b.getByRole("button", { name: "로그아웃", exact: true }).click();
-  await expect(b.getByRole("heading", { name: "이메일로 로그인", exact: true })).toBeVisible();
-  await expect.poll(() => readValue(b, "sync:auth:https://sync.test")).toBeNull();
+  await expect(
+    b.getByRole("heading", { name: "이메일로 로그인", exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(() => readValue(b, "sync:auth:https://sync.test"))
+    .toBeNull();
   await login(b, "other@example.com");
   await sync(b);
   expect(
@@ -367,9 +371,10 @@ test("fake service: OX 진행 중 응답은 로컬에 남고 오프라인 종료
     .click();
   fake.paused = true;
   await pc.setOffline(true);
-  await a
-    .getByRole("button", { name: "학습 마치고 동기화", exact: true })
-    .click();
+  await expect(
+    a.getByRole("button", { name: "학습 마치고 동기화", exact: true }),
+  ).toHaveCount(0);
+  await a.getByRole("button", { name: "이번 세션 종료", exact: true }).click();
   await expect(
     a.getByRole("heading", { name: "오늘도 한 걸음 쌓았어요.", exact: true }),
   ).toBeVisible();
@@ -450,9 +455,7 @@ test("fake service: OX 진행 중 응답은 로컬에 남고 오프라인 종료
     .toBeGreaterThan(0);
   await a.getByRole("button", { name: "학습 홈", exact: true }).click();
   await a.getByRole("button", { name: "이어 풀기", exact: true }).click();
-  await a
-    .getByRole("button", { name: "학습 마치고 동기화", exact: true })
-    .click();
+  await a.getByRole("button", { name: "이번 세션 종료", exact: true }).click();
   await sync(a);
   await sync(b);
   await expect

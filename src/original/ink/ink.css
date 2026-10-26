@@ -2,7 +2,7 @@
   position: relative;
   min-width: 0;
   font: inherit;
-  touch-action: auto;
+  touch-action: pinch-zoom;
 }
 .ink-content {
   display: flow-root;
@@ -21,7 +21,7 @@
   visibility: hidden;
 }
 .original-app.is-quiz .original-choice-button.ink-choice-button {
-  touch-action: auto;
+  touch-action: pinch-zoom;
 }
 .original-app.is-quiz .ink-tools {
   border: 1px solid #d8e1d5;
@@ -125,43 +125,15 @@
   font-size: 13px;
 }
 
-.quiz-input-scope[data-touch-locked="true"],
-.quiz-input-scope[data-touch-locked="true"] * {
-  touch-action: none !important;
+/* Prepared before contact: the UA may pinch, while one-finger movement is
+   routed explicitly and cannot take a vertical pen stroke as page panning. */
+.original-app.is-quiz .quiz-input-scope,
+.original-app.is-quiz .quiz-input-scope * {
+  touch-action: pinch-zoom;
 }
-.quiz-touch-recovery {
-  display: flex;
-  justify-content: flex-start;
-  margin: 2px 0;
-  position: sticky;
-  top: 0;
-  z-index: 180;
-  background: #f8faf6;
-}
-.quiz-input-scope[data-touch-locked="true"] .quiz-reading-toolbar {
-  top: 44px;
-}
-.original-app .quiz-touch-recovery button {
-  font-size: 12px;
-  min-height: 40px;
-  position: relative;
-  overflow: hidden;
-}
-.quiz-touch-recovery button[data-holding="true"]:after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: #87ba8b55;
-  transform-origin: left;
-  animation: unlock-hold 1.2s linear;
-}
-@keyframes unlock-hold {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
+.original-app.is-quiz .quiz-input-scope[data-pointer-supported="false"],
+.original-app.is-quiz .quiz-input-scope[data-pointer-supported="false"] * {
+  touch-action: auto;
 }
 .original-paper {
   padding: 8px 0;

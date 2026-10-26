@@ -359,9 +359,10 @@ test("fake service: 두 독립 기기의 문제은행·완료 기록과 재시�
   await expect.poll(async () => (await stored(a)).attempts.length).toBe(2);
   await sync(b);
   expect((await stored(b)).attempts).toHaveLength(1);
-  await a
-    .getByRole("button", { name: "학습 마치고 동기화", exact: true })
-    .click();
+  await expect(
+    a.getByRole("button", { name: "학습 마치고 동기화", exact: true }),
+  ).toHaveCount(0);
+  await a.getByRole("button", { name: "학습 종료", exact: true }).click();
   await a
     .getByRole("alertdialog")
     .getByRole("button", { name: /^(시험 제출|학습 종료) 확정$/ })

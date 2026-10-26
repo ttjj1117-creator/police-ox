@@ -705,7 +705,6 @@ export function App({
                 },
               )
             }
-            syncAfterEnd={connected}
           />
         )}
         {page === "result" && session && (
@@ -1253,7 +1252,6 @@ function Quiz({
   onMark,
   onNext,
   onEnd,
-  syncAfterEnd = false,
 }: {
   state: State;
   session: Session;
@@ -1262,7 +1260,6 @@ function Quiz({
   onMark: () => void;
   onNext: () => void;
   onEnd: () => void;
-  syncAfterEnd?: boolean;
 }) {
   const v = session.items[session.index],
     b = session.selection.basis,
@@ -1425,12 +1422,11 @@ function Quiz({
         </section>
       )}
       <button className="text-button" disabled={busy} onClick={onEnd}>
-        {syncAfterEnd ? "학습 마치고 동기화" : "이번 세션 종료"}
+        이번 세션 종료
       </button>
       <p className="muted">
-        {syncAfterEnd
-          ? "진행 중 답안은 이 기기에 남고, 학습을 마치면 완료 기록을 공유합니다. 미응답 지문은 오답으로 기록하지 않습니다."
-          : "미응답 지문은 오답으로 기록하지 않습니다. 저장된 위치에서 이어 풀 수 있습니다."}
+        미응답 지문은 오답으로 기록하지 않습니다. 답안과 종료 기록은 이 기기에
+        저장합니다.
       </p>
     </>
   );

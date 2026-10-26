@@ -77,16 +77,22 @@ describe("local pencil history and input boundary", () => {
     expect(input.touchBlocked(2)).toBe(true);
     input.penUp(9);
     expect(input.canPan(1)).toBe(false);
+    // The old palms remain invalid, but must not poison a newly started finger.
+    input.touchDown(3);
+    expect(input.palmBlocked(3)).toBe(false);
+    expect(input.touchBlocked(3)).toBe(false);
+    expect(input.canPan(3)).toBe(true);
+    input.touchUp(3);
     input.touchUp(1);
     expect(input.touchBlocked(1)).toBe(true);
     input.touchUp(2);
-    input.touchDown(3);
-    expect(input.canPan(3)).toBe(true);
-    input.touchUp(3);
+    input.touchDown(4);
+    expect(input.canPan(4)).toBe(true);
+    input.touchUp(4);
     now += 1001;
     expect(input.touchBlocked(1)).toBe(false);
   });
-  it("multiple fingers disable manual pan and choices until every contact lifts, without becoming palms", () => {
+  it("multiple fingers invalidate those gestures without poisoning a fresh finger", () => {
     const input = new InkInputCoordinator();
     input.touchDown(1);
     input.touchDown(2);
@@ -97,13 +103,40 @@ describe("local pencil history and input boundary", () => {
     input.touchUp(2);
     expect(input.touchBlocked(2)).toBe(true);
     expect(input.canPan(1)).toBe(false);
-    input.touchUp(1);
     input.touchDown(3);
     expect(input.canPan(3)).toBe(true);
+    expect(input.palmBlocked(3)).toBe(false);
+    input.touchUp(1);
+    expect(input.canPan(3)).toBe(true);
+  });
+  it("recent ink suppresses an old stroke click without delaying fresh finger movement", () => {
+    const input = new InkInputCoordinator();
+    input.penDown(9);
+    input.markInkGesture();
+    input.penUp(9);
+    expect(input.recentInkGesture()).toBe(true);
+    input.touchDown(11);
+    expect(input.canPan(11)).toBe(true);
+    expect(input.touchBlocked(11)).toBe(false);
+    input.touchUp(11);
+  });
+  it("a reused pointer ID starts cleanly after an invalid contact has ended", () => {
+    const input = new InkInputCoordinator();
+    input.penDown(9);
+    input.touchDown(2);
+    input.penUp(9);
+    input.touchUp(2);
+    expect(input.touchBlocked(2)).toBe(true);
+    input.touchDown(2);
+    expect(input.canPan(2)).toBe(true);
+    expect(input.touchBlocked(2)).toBe(false);
   });
   it("contact reset releases pen/palm/multitouch gates and recent ink click suppression", () => {
     const input = new InkInputCoordinator();
-    input.penDown(1); input.touchDown(2); input.touchDown(3); input.markInkGesture();
+    input.penDown(1);
+    input.touchDown(2);
+    input.touchDown(3);
+    input.markInkGesture();
     expect(input.hasContacts).toBe(true);
     expect(input.recentInkGesture()).toBe(true);
     input.reset();
