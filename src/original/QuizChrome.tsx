@@ -6,6 +6,8 @@ export interface QuizMenuItem {
   onSelect: () => void;
 }
 export interface QuizChromeProps {
+  onRequestFinish?: () => void;
+  finishLabel?: string;
   subjectLabel: string;
   current: number;
   total: number;
@@ -23,6 +25,8 @@ export interface QuizChromeProps {
   onReadingFlowChange?: (value: boolean) => void;
 }
 export function QuizChrome({
+  onRequestFinish,
+  finishLabel = "학습 종료",
   subjectLabel,
   current,
   total,
@@ -66,6 +70,16 @@ export function QuizChrome({
   }, [menuOpen]);
   return (
     <header className="quiz-reading-toolbar" aria-label="문제 풀이 도구">
+      {onRequestFinish && (
+        <button
+          type="button"
+          className="quiz-exit-button"
+          disabled={busy}
+          onClick={onRequestFinish}
+        >
+          {finishLabel}
+        </button>
+      )}
       <div className="quiz-reading-position">
         <strong>{subjectLabel}</strong>
         <span>

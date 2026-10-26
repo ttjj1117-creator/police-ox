@@ -362,6 +362,10 @@ test("fake service: 두 독립 기기의 문제은행·완료 기록과 재시�
   await a
     .getByRole("button", { name: "학습 마치고 동기화", exact: true })
     .click();
+  await a
+    .getByRole("alertdialog")
+    .getByRole("button", { name: /^(시험 제출|학습 종료) 확정$/ })
+    .click();
   await expect(
     a.getByRole("heading", { name: /학습 결과|풀이 결과/ }),
   ).toBeVisible();
@@ -454,6 +458,10 @@ test("fake service: 오프라인 완료 기록은 재실행 후 합쳐지고 불
       .click();
     await page.getByRole("button", { name: "답 제출", exact: true }).click();
     await page.getByRole("button", { name: "학습 종료", exact: true }).click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: /^(시험 제출|학습 종료) 확정$/ })
+      .click();
     await expect
       .poll(
         async () =>
@@ -559,6 +567,10 @@ test("fake service: 원격 삭제·표시 해제는 오래된 기기에서 되�
   await nav(b, "학습 홈");
   await b.getByRole("button", { name: /^이어 풀기/ }).click();
   await b.getByRole("button", { name: "학습 종료", exact: true }).click();
+  await b
+    .getByRole("alertdialog")
+    .getByRole("button", { name: /^(시험 제출|학습 종료) 확정$/ })
+    .click();
   await sync(b);
   await nav(b, "데이터·설정");
   await b
@@ -598,6 +610,10 @@ test("fake service: 원격 삭제·표시 해제는 오래된 기기에서 되�
   ).toBeVisible();
   a.once("dialog", (dialog) => dialog.accept());
   await a.getByRole("button", { name: "시험 제출", exact: true }).click();
+  await a
+    .getByRole("alertdialog")
+    .getByRole("button", { name: /^(시험 제출|학습 종료) 확정$/ })
+    .click();
   await sync(a);
   await sync(b);
   for (const page of [a, b]) {

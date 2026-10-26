@@ -224,6 +224,10 @@ test("PWA 대기 업데이트는 진행 중 모의고사·답안·deadline을 �
   await context.setOffline(false);
   page.once("dialog", (dialog) => void dialog.accept());
   await page.getByRole("button", { name: "시험 제출", exact: true }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: /^(시험 제출|학습 종료) 확정$/ })
+    .click();
   await expect
     .poll(async () => (await bank(page)).sessions[0].status)
     .toBe("completed");

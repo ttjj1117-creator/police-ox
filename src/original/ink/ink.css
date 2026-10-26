@@ -2,7 +2,7 @@
   position: relative;
   min-width: 0;
   font: inherit;
-  touch-action: pinch-zoom;
+  touch-action: auto;
 }
 .ink-content {
   display: flow-root;
@@ -21,7 +21,7 @@
   visibility: hidden;
 }
 .original-app.is-quiz .original-choice-button.ink-choice-button {
-  touch-action: pinch-zoom;
+  touch-action: auto;
 }
 .original-app.is-quiz .ink-tools {
   border: 1px solid #d8e1d5;
@@ -123,4 +123,97 @@
   margin: 4px 0 2px;
   color: #856123;
   font-size: 13px;
+}
+
+.quiz-input-scope[data-touch-locked="true"],
+.quiz-input-scope[data-touch-locked="true"] * {
+  touch-action: none !important;
+}
+.quiz-touch-recovery {
+  display: flex;
+  justify-content: flex-start;
+  margin: 2px 0;
+  position: sticky;
+  top: 0;
+  z-index: 180;
+  background: #f8faf6;
+}
+.quiz-input-scope[data-touch-locked="true"] .quiz-reading-toolbar {
+  top: 44px;
+}
+.original-app .quiz-touch-recovery button {
+  font-size: 12px;
+  min-height: 40px;
+  position: relative;
+  overflow: hidden;
+}
+.quiz-touch-recovery button[data-holding="true"]:after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #87ba8b55;
+  transform-origin: left;
+  animation: unlock-hold 1.2s linear;
+}
+@keyframes unlock-hold {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.original-paper {
+  padding: 8px 0;
+  min-height: 140px;
+}
+.quiz-exit-button {
+  order: -1;
+  flex: 0 0 auto !important;
+  margin-right: 12px;
+}
+.quiz-exit-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #132d3b55;
+  z-index: 160;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+.quiz-exit-dialog {
+  background: white;
+  border: 1px solid #cad9cb;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 32rem;
+  width: 100%;
+  font-size: 16px;
+}
+.quiz-exit-dialog .dialog-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+.quiz-reading-toolbar {
+  flex-wrap: wrap;
+}
+
+.original-app.is-quiz .ink-surface[data-ink-surface="paper"] {
+  margin-inline: -12px;
+  width: calc(100% + 24px);
+}
+.original-app.is-quiz .original-paper {
+  padding: 4px 12px;
+}
+.original-app.is-quiz .original-paper .original-choice-text > :last-child {
+  margin-bottom: 0;
+}
+.original-app.is-quiz .original-paper .original-choices {
+  margin-top: 14px;
+}
+.original-app.is-quiz .quiz-exit-button {
+  min-height: 48px;
+  min-width: 48px;
 }

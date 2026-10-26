@@ -204,8 +204,9 @@ async function login(page: Page, email = "owner@example.com") {
   page.setDefaultTimeout(10_000);
   await page.goto("/?view=original&mode=real&panel=cloud");
   const url = page.getByLabel("Supabase 프로젝트 URL", { exact: true });
+  await url.waitFor({ state: "attached" });
   if (!(await url.isVisible()))
-    await page.getByText("동기화 서버 연결 설정", { exact: true }).click();
+    await page.getByText(/^동기화 서버 연결 설정/).click();
   await url.fill("https://sync.test");
   await page
     .getByLabel("공개용 publishable key", { exact: true })
@@ -325,6 +326,8 @@ test("fake service: OX 로그인 전 자료 보존, 두 기기 병합·중복 �
   expect(fake.space(UID, false).events).toHaveLength(0);
   await b.goto("/?view=original&mode=real&panel=cloud");
   await b.getByRole("button", { name: "로그아웃", exact: true }).click();
+  await expect(b.getByRole("heading", { name: "이메일로 로그인", exact: true })).toBeVisible();
+  await expect.poll(() => readValue(b, "sync:auth:https://sync.test")).toBeNull();
   await login(b, "other@example.com");
   await sync(b);
   expect(

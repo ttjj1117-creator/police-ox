@@ -13,7 +13,6 @@ import {
 } from "react";
 import {
   choicePointerAllowed,
-  InkFingerPan,
   InkInputCoordinator,
   editInk,
   emptyInkDocument,
@@ -35,6 +34,7 @@ import {
 } from "./model";
 import { InkRecoveryError, inkStore, type InkPersistence } from "./store";
 import "./ink.css";
+import { useQuizInput } from "./InputGuard";
 
 type Measure = () => unknown;
 interface InkContextValue {
@@ -50,109 +50,30 @@ interface InkContextValue {
   measure: () => void;
   commit: (key: string, transform: (history: InkHistory) => InkHistory) => void;
   otherLayouts: boolean;
+  legacyAvailable: boolean;
   status: string;
   error: boolean;
   retry: () => void;
+  flush: () => Promise<boolean>;
+  registerFinish: (finish: () => void) => () => void;
   input: InkInputCoordinator;
 }
 const InkContext = createContext<InkContextValue | null>(null);
-const useInk = (): InkContextValue => {
+export const useInk = (): InkContextValue => {
   const context = useContext(InkContext);
   if (!context) throw new Error("InkSurface에는 InkProvider가 필요합니다.");
   return context;
 };
-export const useInkMode = (): InkMode => useContext(InkContext)?.mode ?? "pen";
+export const useInkMode = (): InkMode => useContext(InkContext)?.mode ?? "read";
 
-function scrollInkAncestors(origin: Element, x: number, y: number): void {
-  const root = document.scrollingElement ?? document.documentElement;
-  const move = (axis: "x" | "y", amount: number) => {
-    if (!amount) return;
-    let remaining = amount;
-    for (let node: Element | null = origin; node; node = node.parentElement) {
-      if (!(node instanceof HTMLElement) || node === root) continue;
-      const style = getComputedStyle(node);
-      const overflow = axis === "y" ? style.overflowY : style.overflowX;
-      if (!/auto|scroll|overlay/.test(overflow)) continue;
-      const before = axis === "y" ? node.scrollTop : node.scrollLeft;
-      if (axis === "y") node.scrollTop += remaining;
-      else node.scrollLeft += remaining;
-      remaining -= (axis === "y" ? node.scrollTop : node.scrollLeft) - before;
-      if (Math.abs(remaining) < 0.5) return;
-    }
-    if (axis === "y") root.scrollTop += remaining;
-    // A horizontal finger drag can move a wide local figure/table, never the page.
-  };
-  move("x", x); move("y", y);
-}
-
-/** A fixed pinch-zoom policy keeps vertical pen input out of UA panning.
- * Single-finger movement is explicit and separate from every drawing buffer. */
-function useInkFingerPan<T extends HTMLElement>(input: InkInputCoordinator) {
+// Native reading gestures are restored in read mode; pen mode is guarded upstream.
+function useInkHost<T extends HTMLElement>() {
   const ref = useRef<T>(null);
-  const pan = useRef(new InkFingerPan());
-  const origin = useRef<Element | null>(null);
-  const capture = useRef<number | null>(null);
-  const cancel = useCallback(() => {
-    const id = capture.current;
-    capture.current = null;
-    pan.current.cancel();
-    origin.current = null;
-    try { if (id !== null && ref.current?.hasPointerCapture(id)) ref.current.releasePointerCapture(id); } catch { /* cancelled/detached contact */ }
-  }, []);
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    // React installs passive touch handlers in Chromium. This narrow native
-    // listener only blocks contacts already identified alongside a pen.
-    const palm = (event: TouchEvent) => {
-      if ((input.penActive || input.hasPalmTouch) && event.cancelable) event.preventDefault();
-    };
-    const hide = () => { if (document.visibilityState === "hidden") cancel(); };
-    element.addEventListener("touchstart", palm, { passive: false });
-    element.addEventListener("touchmove", palm, { passive: false });
-    window.addEventListener("blur", cancel);
-    window.addEventListener("pagehide", cancel);
-    document.addEventListener("visibilitychange", hide);
-    return () => {
-      cancel();
-      element.removeEventListener("touchstart", palm);
-      element.removeEventListener("touchmove", palm);
-      window.removeEventListener("blur", cancel);
-      window.removeEventListener("pagehide", cancel);
-      document.removeEventListener("visibilitychange", hide);
-    };
-  }, [input, cancel]);
   return {
     ref,
-    cancel,
-    down(event: ReactPointerEvent<T>) {
-      if (event.pointerType !== "touch") return;
-      input.touchDown(event.pointerId);
-      if (!input.canPan(event.pointerId)) {
-        cancel();
-        if (input.palmBlocked(event.pointerId)) { event.preventDefault(); event.stopPropagation(); }
-        return;
-      }
-      pan.current.start(event.pointerId, event.clientX, event.clientY);
-      origin.current = event.target instanceof Element ? event.target : event.currentTarget;
-      capture.current = event.pointerId;
-      try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* synthetic events/implicit capture fallback */ }
-    },
-    move(event: ReactPointerEvent<T>) {
-      if (event.pointerType !== "touch") return;
-      const delta = pan.current.move(event.pointerId, event.clientX, event.clientY, input.canPan(event.pointerId));
-      if (origin.current && (delta.x || delta.y)) scrollInkAncestors(origin.current, delta.x, delta.y);
-    },
-    end(event: ReactPointerEvent<T>) {
-      if (event.pointerType !== "touch") return;
-      input.touchUp(event.pointerId);
-      if (capture.current === event.pointerId || pan.current.pointerId === event.pointerId) cancel();
-    },
-    lost(event: ReactPointerEvent<T>) {
-      // Lost capture ends manual movement, but a physical touch remains tracked
-      // until the document receives up/cancel (important during native pinch).
-      if (event.pointerType === "touch" && capture.current === event.pointerId) cancel();
-    },
+    cancel: () => {},
+    end: (_event: ReactPointerEvent<T>) => {},
+    lost: (_event: ReactPointerEvent<T>) => {},
   };
 }
 
@@ -174,7 +95,12 @@ export function InkProvider({
     document: emptyInkDocument(identity),
   });
   const [revision, setRevision] = useState(0);
-  const [mode, setMode] = useState<InkMode>("pen");
+  const policy = useQuizInput();
+  const [fallbackMode, setFallbackMode] = useState<InkMode>("read");
+  const mode = policy?.mode ?? fallbackMode,
+    setMode = policy?.setMode ?? setFallbackMode;
+  const finishers = useRef(new Set<() => void>());
+  const saving = useRef<Promise<void> | null>(null);
   const [layout, setLayout] = useState({ identityKey: "", key: "" });
   const [loadError, setLoadError] = useState(false);
   const [saveState, setSaveState] = useState<
@@ -223,7 +149,7 @@ export function InkProvider({
     live.current = { key: "", document: emptyInkDocument(identityRef.current) };
     setLoadError(false);
     setSaveState("idle");
-    setMode("pen");
+
     setDrawing(false);
     active.current = null;
     void store
@@ -256,20 +182,36 @@ export function InkProvider({
   useEffect(() => {
     const routing = input.current;
     const start = (event: PointerEvent) => {
-      const scoped = event.target instanceof Element && !!event.target.closest(".original-quiz-grid,.ink-tools,.quiz-reading-toolbar");
+      const scoped =
+        event.target instanceof Element &&
+        !!event.target.closest(
+          ".original-quiz-grid,.ink-tools,.quiz-reading-toolbar",
+        );
       if (!scoped && !routing.hasContacts) return;
       if (event.pointerType === "pen") routing.penDown(event.pointerId);
-      else if (event.pointerType === "touch") routing.touchDown(event.pointerId);
+      else if (event.pointerType === "touch")
+        routing.touchDown(event.pointerId);
     };
     const end = (event: PointerEvent) => {
       if (event.pointerType === "pen") routing.penUp(event.pointerId);
       else if (event.pointerType === "touch") routing.touchUp(event.pointerId);
     };
     const reset = () => routing.reset();
-    const hide = () => { if (document.visibilityState === "hidden") reset(); };
-    document.addEventListener("pointerdown", start, { capture: true, passive: true });
-    document.addEventListener("pointerup", end, { capture: true, passive: true });
-    document.addEventListener("pointercancel", end, { capture: true, passive: true });
+    const hide = () => {
+      if (document.visibilityState === "hidden") reset();
+    };
+    document.addEventListener("pointerdown", start, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("pointerup", end, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("pointercancel", end, {
+      capture: true,
+      passive: true,
+    });
     window.addEventListener("blur", reset);
     window.addEventListener("pagehide", reset);
     document.addEventListener("visibilitychange", hide);
@@ -290,8 +232,9 @@ export function InkProvider({
       const sequence = ++saveSequence.current;
       if (mounted.current) setSaveState("saving");
       // The store registers every pending commit synchronously across provider remounts.
-      const saving = store.write(document);
-      void saving
+      const pending = store.write(document);
+      saving.current = pending;
+      void pending
         .then(() => {
           if (
             mounted.current &&
@@ -355,9 +298,27 @@ export function InkProvider({
     if (live.current.key !== identityKey) setLoadAttempt((n) => n + 1);
     else persist(live.current.document);
   }, [identityKey, persist]);
+  const registerFinish = useCallback((finish: () => void) => {
+    finishers.current.add(finish);
+    return () => {
+      finishers.current.delete(finish);
+    };
+  }, []);
+  const flush = useCallback(async () => {
+    for (const finish of finishers.current) finish();
+    if (live.current.key !== identityKey) return false;
+    try {
+      await saving.current;
+      return true;
+    } catch {
+      return false;
+    }
+  }, [identityKey]);
   const context = useMemo<InkContextValue>(
     () => ({
       mode,
+      flush,
+      registerFinish,
       input: input.current,
       setMode,
       ready,
@@ -373,6 +334,13 @@ export function InkProvider({
         ready &&
         Object.entries(live.current.document.layouts).some(
           ([key, value]) => key !== layoutKey && value.strokes.length > 0,
+        ),
+      legacyAvailable:
+        ready &&
+        Object.values(live.current.document.layouts).some((h) =>
+          [h.strokes, ...h.undo, ...h.redo].some((strokes) =>
+            strokes.some((s) => s.surfaceId !== "paper"),
+          ),
         ),
       status: loadError
         ? "필기를 불러오지 못했습니다. 기존 필기는 보존됩니다."
@@ -405,21 +373,37 @@ export function InkProvider({
       saveState,
       retry,
       revision,
+      flush,
+      registerFinish,
+      setMode,
     ],
   );
   return <InkContext.Provider value={context}>{children}</InkContext.Provider>;
 }
 
-export function InkToolbar() {
+export function InkToolbar({
+  legacy = false,
+  onToggleLegacy,
+}: {
+  legacy?: boolean;
+  onToggleLegacy?: () => void;
+}) {
   const ink = useInk();
-  const disabled = !ink.ready || !ink.layoutKey || ink.drawing;
+  const disabled = !ink.ready || !ink.layoutKey || ink.drawing || legacy;
   return (
     <section className="ink-tools" aria-label="문항 필기">
       <div className="ink-tool-row">
         <div className="ink-tool-buttons" role="group" aria-label="필기 도구">
           <button
             type="button"
-            disabled={!ink.ready}
+            aria-pressed={ink.mode === "read"}
+            onClick={() => ink.setMode("read")}
+          >
+            이동·읽기
+          </button>
+          <button
+            type="button"
+            disabled={!ink.ready || legacy}
             aria-pressed={ink.mode === "pen"}
             onClick={() => ink.setMode("pen")}
           >
@@ -427,7 +411,7 @@ export function InkToolbar() {
           </button>
           <button
             type="button"
-            disabled={!ink.ready}
+            disabled={!ink.ready || legacy}
             aria-pressed={ink.mode === "eraser"}
             onClick={() => ink.setMode("eraser")}
           >
@@ -457,12 +441,27 @@ export function InkToolbar() {
             현재 문항 필기 지우기
           </button>
         </div>
+        {onToggleLegacy && (legacy || ink.legacyAvailable) && (
+          <button type="button" onClick={onToggleLegacy}>
+            {legacy ? "연속 필기로 돌아가기" : "이전 필기 배치 보기"}
+          </button>
+        )}
         <div
           className="ink-tool-state"
           data-error={ink.error ? "true" : "false"}
         >
           <span role={ink.error ? "alert" : "status"}>{ink.status}</span>
-          <span className="ink-mode-hint">펜은 필기 · 손가락은 이동</span>
+          <span className="ink-mode-hint">
+            {ink.mode === "read"
+              ? "이동·읽기 · 손 터치 사용"
+              : "펜 전용 · 손 터치 잠금"}
+          </span>
+          {legacy && (
+            <span>
+              이전 필기 보관 보기 · 읽기 전용. 같은 화면 폭·글씨·줄바꿈에서
+              복원합니다.
+            </span>
+          )}
           {ink.error && (
             <button type="button" onClick={ink.retry}>
               필기 저장 다시 시도
@@ -483,14 +482,18 @@ export function InkToolbar() {
           </summary>
           <div className="ink-instructions-panel">
             <p>
-              펜은 바로 필기하고 손가락 한 개로 화면을 이동합니다. 두 손가락
-              확대는 브라우저가 처리합니다. 번호는 펜이나 손가락으로 짧게 누르세요.
+              이동·읽기에서는 손가락으로 이동·확대·번호 선택을 합니다.
+              연필·지우개에서는 펜만 사용할 수 있고 학습 화면의 손 터치를
+              잠급니다.
             </p>
             <p>
               필기는 이 기기에 저장합니다. 일반 백업·기기 동기화에는 포함되지
               않습니다.
             </p>
-            <p>펜과 함께 닿은 손가락은 떼었다가 다시 사용하세요. 기기 수준의 완전한 손바닥 거부를 대신하지는 않습니다.</p>
+            <p>
+              펜이 인식되지 않으면 왼쪽의 터치 잠금 해제를 1.2초 누르세요.
+              브라우저·운영체제의 터치를 끄는 기능은 아닙니다.
+            </p>
             <p>
               글씨 크기나 화면 배치가 바뀌면 기존 필기는 별도로 보관하며, 원래
               배치로 돌아오면 다시 표시합니다.
@@ -581,12 +584,14 @@ interface Gesture {
 export function InkSurface({
   surfaceId,
   children,
+  readOnly = false,
 }: {
   surfaceId: string;
   children: ReactNode;
+  readOnly?: boolean;
 }) {
   const ink = useInk();
-  const fingerPan = useInkFingerPan<HTMLDivElement>(ink.input);
+  const fingerPan = useInkHost<HTMLDivElement>();
   const content = useRef<HTMLDivElement>(null);
   const layer = useRef<SVGSVGElement>(null);
   const draft = useRef<SVGPathElement>(null);
@@ -759,8 +764,14 @@ export function InkSurface({
     paint();
   };
   const down = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === "touch") { fingerPan.down(event); return; }
-    if (!isDrawingPointer(event.pointerType)) return;
+    if (event.pointerType === "touch") return;
+    if (!isDrawingPointer(event.pointerType) || ink.mode === "read" || readOnly)
+      return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button,a,input,select,textarea,summary")
+    )
+      return;
     event.stopPropagation();
     event.preventDefault();
     if (
@@ -797,6 +808,7 @@ export function InkSurface({
     }
     paint();
   };
+  useEffect(() => ink.registerFinish(finish), [ink.registerFinish, finish]);
   const strokes = ink.history.strokes.filter(
     (stroke) => stroke.surfaceId === surfaceId,
   );
@@ -809,17 +821,21 @@ export function InkSurface({
       data-ink-ready={ink.ready && !!ink.layoutKey ? "true" : "false"}
       onPointerDown={down}
       onPointerMove={(event) => {
-        if (event.pointerType === "touch") { fingerPan.move(event); return; }
+        if (event.pointerType === "touch") return;
         if (gesture.current?.pointerId === event.pointerId) {
-          event.preventDefault(); event.stopPropagation();
+          event.preventDefault();
+          event.stopPropagation();
           if (event.buttons === 0 && event.pressure === 0) finish();
           else append(event.nativeEvent);
         }
       }}
       onPointerUp={(event) => {
-        if (event.pointerType === "touch") { fingerPan.end(event); return; }
+        if (event.pointerType === "touch") return;
         if (gesture.current?.pointerId === event.pointerId) {
-          event.preventDefault(); event.stopPropagation(); append(event.nativeEvent); finish();
+          event.preventDefault();
+          event.stopPropagation();
+          append(event.nativeEvent);
+          finish();
         }
       }}
       onPointerCancel={(event) => {
@@ -833,7 +849,9 @@ export function InkSurface({
         if (gesture.current?.pointerId === event.pointerId) finish();
       }}
       onPointerLeave={(event) => {
-        const captured = typeof event.currentTarget.hasPointerCapture === "function" && event.currentTarget.hasPointerCapture(event.pointerId);
+        const captured =
+          typeof event.currentTarget.hasPointerCapture === "function" &&
+          event.currentTarget.hasPointerCapture(event.pointerId);
         if (gesture.current?.pointerId === event.pointerId && !captured) {
           ink.input.penUp(event.pointerId);
           finish();
@@ -841,19 +859,19 @@ export function InkSurface({
         if (event.pointerType === "touch" && !captured) fingerPan.cancel();
       }}
       onClick={(event) => {
-        if ((event.nativeEvent as MouseEvent & { pointerType?: string }).pointerType === "pen") {
-          event.preventDefault(); event.stopPropagation();
+        if (
+          (event.nativeEvent as MouseEvent & { pointerType?: string })
+            .pointerType === "pen"
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
         }
       }}
     >
       <div className="ink-content" ref={content}>
         {children}
       </div>
-      <svg
-        ref={layer}
-        className="ink-layer"
-        aria-hidden="true"
-      >
+      <svg ref={layer} className="ink-layer" aria-hidden="true">
         {strokes.map((stroke) => (
           <g
             key={stroke.id}
@@ -886,7 +904,7 @@ export function InkSurface({
   );
 }
 
-/** The native number button stays outside every writing surface. */
+/** Number controls exclude their starting contacts from paper writing. */
 export function InkChoiceButton({
   onClick,
   onPointerDown,
@@ -898,7 +916,7 @@ export function InkChoiceButton({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement>) {
   const ink = useInk();
-  const fingerPan = useInkFingerPan<HTMLButtonElement>(ink.input);
+  const fingerPan = useInkHost<HTMLButtonElement>();
   const pointer = useRef<{
     id: number;
     type: string;
@@ -917,7 +935,9 @@ export function InkChoiceButton({
         suppress.current = Date.now() + 1000;
       }
     };
-    const hide = () => { if (document.visibilityState === "hidden") reset(); };
+    const hide = () => {
+      if (document.visibilityState === "hidden") reset();
+    };
     window.addEventListener("blur", reset);
     window.addEventListener("pagehide", reset);
     document.addEventListener("visibilitychange", hide);
@@ -933,7 +953,6 @@ export function InkChoiceButton({
       ref={fingerPan.ref}
       className={[className, "ink-choice-button"].filter(Boolean).join(" ")}
       onPointerDown={(event) => {
-        fingerPan.down(event);
         pointer.current = {
           id: event.pointerId,
           type: event.pointerType,
@@ -942,7 +961,9 @@ export function InkChoiceButton({
           moved: false,
           cancelled: false,
           ended: false,
-          blocked: event.pointerType === "touch" && ink.input.touchBlocked(event.pointerId),
+          blocked:
+            event.pointerType === "touch" &&
+            ink.input.touchBlocked(event.pointerId),
         };
         if (event.pointerType === "pen") {
           try {
@@ -951,7 +972,14 @@ export function InkChoiceButton({
             /* synthetic events or unavailable capture */
           }
         }
-        if (!choicePointerAllowed(event.pointerType, false, false, pointer.current.blocked)) {
+        if (
+          !choicePointerAllowed(
+            event.pointerType,
+            false,
+            false,
+            pointer.current.blocked,
+          )
+        ) {
           suppress.current = Date.now() + 1000;
           event.preventDefault();
           event.stopPropagation();
@@ -959,7 +987,6 @@ export function InkChoiceButton({
         onPointerDown?.(event);
       }}
       onPointerMove={(event) => {
-        fingerPan.move(event);
         const down = pointer.current;
         if (
           down?.id === event.pointerId &&
@@ -973,12 +1000,18 @@ export function InkChoiceButton({
       onPointerUp={(event) => {
         const down = pointer.current;
         if (down?.id === event.pointerId) {
-          down.blocked ||= down.type === "touch" && ink.input.touchBlocked(down.id);
+          down.blocked ||=
+            down.type === "touch" && ink.input.touchBlocked(down.id);
           down.ended = true;
           if (Math.hypot(event.clientX - down.x, event.clientY - down.y) >= 8)
             down.moved = true;
           if (
-            !choicePointerAllowed(down.type, down.moved, down.cancelled, down.blocked)
+            !choicePointerAllowed(
+              down.type,
+              down.moved,
+              down.cancelled,
+              down.blocked,
+            )
           ) {
             suppress.current = Date.now() + 1000;
             event.preventDefault();
@@ -1015,7 +1048,9 @@ export function InkChoiceButton({
           native.pointerType ||
           (event.detail ? (pointer.current?.type ?? "mouse") : "keyboard");
         const down = pointer.current;
-        const blocked = type === "touch" && (down?.blocked || ink.input.touchBlocked(down?.id));
+        const blocked =
+          type === "touch" &&
+          (down?.blocked || ink.input.touchBlocked(down?.id));
         if (
           !keyboard &&
           (suppress.current > Date.now() ||

@@ -200,7 +200,12 @@ function layoutPackage(ordinary = false) {
     ],
   };
 }
-async function beginLongDemo(page: Page, fontScale = 1, ordinary = false, fixture = layoutPackage(ordinary)) {
+async function beginLongDemo(
+  page: Page,
+  fontScale = 1,
+  ordinary = false,
+  fixture = layoutPackage(ordinary),
+) {
   await page.goto("/?view=original&mode=demo");
   await page.getByRole("button", { name: "데이터·설정", exact: true }).click();
   await page.getByLabel("문제 JSON 가져오기", { exact: true }).setInputFiles({
@@ -270,7 +275,7 @@ test("실제 읽기 글씨 22px·단일 열·기본 접힘 답안표와 48px 번
     for (const selector of [
       ".original-choice-button",
       ".original-movement button",
-      ".original-finish button",
+      ".quiz-exit-button",
       ".quiz-reading-menu > button",
     ]) {
       const box = (await page.locator(selector).first().boundingBox())!;
@@ -405,7 +410,10 @@ test.describe("터치·긴 문제·회전", () => {
     await expect(
       page.getByRole("button", { name: "1번 선택", exact: true }),
     ).toHaveAttribute("aria-pressed", "false");
-    const lineMode = page.getByRole("button", { name: "줄바꿈 방식 전환", exact: true });
+    const lineMode = page.getByRole("button", {
+      name: "줄바꿈 방식 전환",
+      exact: true,
+    });
     await expect(lineMode).toHaveAttribute("aria-pressed", "true");
     await lineMode.click();
     await expect(lineMode).toHaveAttribute("aria-pressed", "false");
@@ -617,96 +625,172 @@ function physicalLines(text: string) {
   const lines: string[] = [];
   let line = "";
   for (const word of text.split(" ")) {
-    if (line && `${line} ${word}`.length > 27) { lines.push(line); line = word; }
-    else line += (line ? " " : "") + word;
+    if (line && `${line} ${word}`.length > 27) {
+      lines.push(line);
+      line = word;
+    } else line += (line ? " " : "") + word;
   }
   if (line) lines.push(line);
   return lines.join("\n");
 }
 async function actualTextLines(page: Page, selector: string) {
-  return page.locator(selector).first().evaluate(element => {
-    const column=element.getBoundingClientRect(),walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);
-    const lines=new Map<number,{left:number;right:number;top:number}>();
-    while(walker.nextNode()) {
-      const text=walker.currentNode;
-      if(!text.textContent?.trim())continue;
-      const range=document.createRange();range.selectNodeContents(text);
-      for(const rect of range.getClientRects()) {
-        if(rect.width<1)continue;
-        const top=Math.round(rect.top*2)/2,previous=lines.get(top);
-        lines.set(top,{top,left:Math.min(previous?.left??Infinity,rect.left),right:Math.max(previous?.right??-Infinity,rect.right)});
+  return page
+    .locator(selector)
+    .first()
+    .evaluate((element) => {
+      const column = element.getBoundingClientRect(),
+        walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const lines = new Map<
+        number,
+        { left: number; right: number; top: number }
+      >();
+      while (walker.nextNode()) {
+        const text = walker.currentNode;
+        if (!text.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        for (const rect of range.getClientRects()) {
+          if (rect.width < 1) continue;
+          const top = Math.round(rect.top * 2) / 2,
+            previous = lines.get(top);
+          lines.set(top, {
+            top,
+            left: Math.min(previous?.left ?? Infinity, rect.left),
+            right: Math.max(previous?.right ?? -Infinity, rect.right),
+          });
+        }
       }
-    }
-    return {columnWidth:column.width,fontSize:parseFloat(getComputedStyle(element).fontSize),lines:[...lines.values()].map(line=>({top:line.top-column.top,fraction:(line.right-line.left)/column.width,rightFraction:(line.right-column.left)/column.width}))};
-  });
+      return {
+        columnWidth: column.width,
+        fontSize: parseFloat(getComputedStyle(element).fontSize),
+        lines: [...lines.values()].map((line) => ({
+          top: line.top - column.top,
+          fraction: (line.right - line.left) / column.width,
+          rightFraction: (line.right - column.left) / column.width,
+        })),
+      };
+    });
 }
 async function textPoint(page: Page, selector: string, needle: string) {
-  return page.locator(selector).evaluate((element,text)=>{
-    const walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT),column=element.getBoundingClientRect();
-    while(walker.nextNode()) {
-      const node=walker.currentNode,index=node.textContent?.indexOf(text)??-1;
-      if(index<0)continue;
-      const range=document.createRange();range.setStart(node,index);range.setEnd(node,index+text.length);
-      const rect=range.getBoundingClientRect();return {left:rect.left-column.left,top:rect.top-column.top};
+  return page.locator(selector).evaluate((element, text) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT),
+      column = element.getBoundingClientRect();
+    while (walker.nextNode()) {
+      const node = walker.currentNode,
+        index = node.textContent?.indexOf(text) ?? -1;
+      if (index < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, index);
+      range.setEnd(node, index + text.length);
+      const rect = range.getBoundingClientRect();
+      return { left: rect.left - column.left, top: rect.top - column.top };
     }
     throw new Error(`fixture text missing: ${text}`);
-  },needle);
+  }, needle);
 }
 
 async function softBreakGlyphGaps(page: Page, selector: string) {
-  return page.locator(selector).first().evaluate(element => {
-    const glyph = (span: Element | null, fromEnd: boolean) => {
-      if (!span) return null;
-      const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT), nodes: Text[] = [];
-      while (walker.nextNode()) nodes.push(walker.currentNode as Text);
-      if (fromEnd) nodes.reverse();
-      for (const node of nodes) {
-        const value = node.textContent ?? "";
-        for (let n = 0; n < value.length; n++) {
-          const index = fromEnd ? value.length - 1 - n : n;
-          if (/\s/u.test(value[index])) continue;
-          const range = document.createRange();
-          range.setStart(node, index); range.setEnd(node, index + 1);
-          const rect = range.getBoundingClientRect();
-          return { left: rect.left, right: rect.right, top: rect.top };
+  return page
+    .locator(selector)
+    .first()
+    .evaluate((element) => {
+      const glyph = (span: Element | null, fromEnd: boolean) => {
+        if (!span) return null;
+        const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT),
+          nodes: Text[] = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+        if (fromEnd) nodes.reverse();
+        for (const node of nodes) {
+          const value = node.textContent ?? "";
+          for (let n = 0; n < value.length; n++) {
+            const index = fromEnd ? value.length - 1 - n : n;
+            if (/\s/u.test(value[index])) continue;
+            const range = document.createRange();
+            range.setStart(node, index);
+            range.setEnd(node, index + 1);
+            const rect = range.getBoundingClientRect();
+            return { left: rect.left, right: rect.right, top: rect.top };
+          }
         }
-      }
-      return null;
-    };
-    return [...element.querySelectorAll('[data-reading-segment="soft-break"]')].flatMap(span => {
-      const left = glyph(span.previousElementSibling, true), right = glyph(span.nextElementSibling, false);
-      if (!left || !right || Math.abs(left.top - right.top) > 2) return [];
-      return [right.left - left.right];
+        return null;
+      };
+      return [
+        ...element.querySelectorAll('[data-reading-segment="soft-break"]'),
+      ].flatMap((span) => {
+        const left = glyph(span.previousElementSibling, true),
+          right = glyph(span.nextElementSibling, false);
+        if (!left || !right || Math.abs(left.top - right.top) > 2) return [];
+        return [right.left - left.right];
+      });
     });
-  });
 }
 
-test("PDF 물리 개행은 기본 자동에서 실제 글줄 폭을 쓰고 의미 문단·목록과 원문 데이터는 보존한다",async({page})=>{
-  await page.setViewportSize({width:1280,height:800});
-  const pkg=layoutPackage(true);
-  const prose="가상의 안내판을 읽는 연습 자료이며 그림이나 법률 지식을 묻지 않습니다 파란 상자와 노란 원의 위치를 천천히 살펴보고 세로로 놓인 작은 삼각형과 가로로 놓인 긴 직사각형을 비교합니다 여러 표시가 이어지는 모습을 순서대로 읽으며 가운데 표시가 어느 쪽에 있는지 확인하고 마지막으로 두 도형 사이에 남아 있는 공간을 살펴봅니다 "+"문장 전체가 화면의 읽기 공간을 자연스럽게 사용하도록 내용을 이어서 읽고 눈에 들어오는 색깔과 크기와 위치를 차례로 확인하는 중립적인 연습입니다 ".repeat(3)+"끝표시입니다.";
-  const raw=physicalLines(prose.trim())+"\n\n(표시 안내)\nㄱ. 파란 상자를 먼저 확인합니다.\nㄴ. 노란 원을 다음에 확인합니다.";
-  const rawChoice=physicalLines(ordinaryChoice);
-  for(const question of pkg.questions) {
-    question.body=[{type:"text",text:raw},{type:"statements",entries:[{label:"㉠",text:"별도의 첫 보기를 그대로 표시합니다."},{label:"㉡",text:"별도의 둘째 보기도 순서를 보존합니다."}]}];
-    for(const choice of question.choices)choice.blocks=[{type:"text",text:rawChoice}];
+test("PDF 물리 개행은 기본 자동에서 실제 글줄 폭을 쓰고 의미 문단·목록과 원문 데이터는 보존한다", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const pkg = layoutPackage(true);
+  const prose =
+    "가상의 안내판을 읽는 연습 자료이며 그림이나 법률 지식을 묻지 않습니다 파란 상자와 노란 원의 위치를 천천히 살펴보고 세로로 놓인 작은 삼각형과 가로로 놓인 긴 직사각형을 비교합니다 여러 표시가 이어지는 모습을 순서대로 읽으며 가운데 표시가 어느 쪽에 있는지 확인하고 마지막으로 두 도형 사이에 남아 있는 공간을 살펴봅니다 " +
+    "문장 전체가 화면의 읽기 공간을 자연스럽게 사용하도록 내용을 이어서 읽고 눈에 들어오는 색깔과 크기와 위치를 차례로 확인하는 중립적인 연습입니다 ".repeat(
+      3,
+    ) +
+    "끝표시입니다.";
+  const raw =
+    physicalLines(prose.trim()) +
+    "\n\n(표시 안내)\nㄱ. 파란 상자를 먼저 확인합니다.\nㄴ. 노란 원을 다음에 확인합니다.";
+  const rawChoice = physicalLines(ordinaryChoice);
+  for (const question of pkg.questions) {
+    question.body = [
+      { type: "text", text: raw },
+      {
+        type: "statements",
+        entries: [
+          { label: "㉠", text: "별도의 첫 보기를 그대로 표시합니다." },
+          { label: "㉡", text: "별도의 둘째 보기도 순서를 보존합니다." },
+        ],
+      },
+    ];
+    for (const choice of question.choices)
+      choice.blocks = [{ type: "text", text: rawChoice }];
   }
-  expect(raw.split("\n").filter(line=>line.length>=20&&line.length<=27).length).toBeGreaterThan(8);
-  await beginLongDemo(page,1,false,pkg);
-  const sourceBefore=JSON.stringify((await stored(page)).state.data.questions.find((q:any)=>q.id==="demo_const_201"));
-  const toggle=page.getByRole("button",{name:"줄바꿈 방식 전환",exact:true});
-  await expect(toggle).toHaveAttribute("aria-pressed","true");
-  const bodySelector='.ink-surface[data-ink-surface="body"] .original-content';
-  const choiceSelector='.original-choice-text .original-content';
+  expect(
+    raw.split("\n").filter((line) => line.length >= 20 && line.length <= 27)
+      .length,
+  ).toBeGreaterThan(8);
+  await beginLongDemo(page, 1, false, pkg);
+  const sourceBefore = JSON.stringify(
+    (await stored(page)).state.data.questions.find(
+      (q: any) => q.id === "demo_const_201",
+    ),
+  );
+  const toggle = page.getByRole("button", {
+    name: "줄바꿈 방식 전환",
+    exact: true,
+  });
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  const bodySelector =
+    '.ink-surface[data-ink-surface="paper"] > .ink-content > .original-paper > .original-content';
+  const choiceSelector = ".original-choice-text .original-content";
   expect(await page.locator(bodySelector).textContent()).toBe(raw);
-  expect(await page.locator(choiceSelector).first().textContent()).toBe(rawChoice);
-  for(const viewport of[{width:1280,height:800},{width:1536,height:960}]) {
-    await page.setViewportSize(viewport);await page.evaluate(()=>document.fonts.ready);
-    const body=await actualTextLines(page,bodySelector);
+  expect(await page.locator(choiceSelector).first().textContent()).toBe(
+    rawChoice,
+  );
+  for (const viewport of [
+    { width: 1280, height: 800 },
+    { width: 1536, height: 960 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.evaluate(() => document.fonts.ready);
+    const body = await actualTextLines(page, bodySelector);
     expect(body.fontSize).toBe(22);
-    expect(body.columnWidth).toBeGreaterThan(viewport.width*0.9);
-    expect(body.lines.filter(line=>line.fraction>0.8).length).toBeGreaterThanOrEqual(3);
-    expect(Math.max(...body.lines.map(line=>line.rightFraction))).toBeGreaterThan(0.9);
+    expect(body.columnWidth).toBeGreaterThan(viewport.width * 0.9);
+    expect(
+      body.lines.filter((line) => line.fraction > 0.8).length,
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      Math.max(...body.lines.map((line) => line.rightFraction)),
+    ).toBeGreaterThan(0.9);
     // CJK normal whitespace can erase a segment break entirely; inspect glyph geometry,
     // because source/DOM text equality alone cannot detect two words stuck together.
     const gaps = await softBreakGlyphGaps(page, bodySelector);
@@ -714,104 +798,206 @@ test("PDF 물리 개행은 기본 자동에서 실제 글줄 폭을 쓰고 의�
     expect(Math.min(...gaps)).toBeGreaterThan(2);
     expect(Math.max(...gaps)).toBeLessThan(body.fontSize);
 
-    const choice=await actualTextLines(page,`${choiceSelector}:first-child`);
-    expect(Math.max(...choice.lines.map(line=>line.fraction))).toBeGreaterThan(0.8);
-    const end=await textPoint(page,bodySelector,"끝표시입니다.");
-    const heading=await textPoint(page,bodySelector,"(표시 안내)");
-    const first=await textPoint(page,bodySelector,"ㄱ.");
-    const second=await textPoint(page,bodySelector,"ㄴ.");
-    expect(heading.top-end.top).toBeGreaterThanOrEqual(22*1.65*1.8);
-    expect(first.top).toBeGreaterThan(heading.top+20);
-    expect(second.top).toBeGreaterThan(first.top+20);
-    expect(first.left).toBeLessThanOrEqual(2);expect(second.left).toBeLessThanOrEqual(2);
-    await expect(page.locator(".original-statements p b")).toHaveText(["㉠","㉡"]);
+    const choice = await actualTextLines(page, `${choiceSelector}:first-child`);
+    expect(
+      Math.max(...choice.lines.map((line) => line.fraction)),
+    ).toBeGreaterThan(0.8);
+    const end = await textPoint(page, bodySelector, "끝표시입니다.");
+    const heading = await textPoint(page, bodySelector, "(표시 안내)");
+    const first = await textPoint(page, bodySelector, "ㄱ.");
+    const second = await textPoint(page, bodySelector, "ㄴ.");
+    expect(heading.top - end.top).toBeGreaterThanOrEqual(22 * 1.65 * 1.8);
+    expect(first.top).toBeGreaterThan(heading.top + 20);
+    expect(second.top).toBeGreaterThan(first.top + 20);
+    expect(first.left).toBeLessThanOrEqual(2);
+    expect(second.left).toBeLessThanOrEqual(2);
+    await expect(page.locator(".original-statements p b")).toHaveText([
+      "㉠",
+      "㉡",
+    ]);
     await noPageOverflow(page);
-    await page.evaluate(()=>scrollTo(0,0));
-    await page.screenshot({path:`test-results/reading-flow-auto-${viewport.width}.png`,fullPage:true});
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.screenshot({
+      path: `test-results/reading-flow-auto-${viewport.width}.png`,
+      fullPage: true,
+    });
   }
-  await page.getByRole("button",{name:"2번 선택",exact:true}).click();
-  const sessionBefore=await activeSession(page);
-  await toggle.click();await expect(toggle).toHaveAttribute("aria-pressed","false");
-  await expect(page.locator(bodySelector).locator(".original-reading-flow")).toHaveCount(0);
-  const original=await actualTextLines(page,bodySelector);
-  expect(Math.max(...original.lines.map(line=>line.fraction))).toBeLessThan(0.65);
+  await page.getByRole("button", { name: "2번 선택", exact: true }).click();
+  const sessionBefore = await activeSession(page);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(
+    page.locator(bodySelector).locator(".original-reading-flow"),
+  ).toHaveCount(0);
+  const original = await actualTextLines(page, bodySelector);
+  expect(Math.max(...original.lines.map((line) => line.fraction))).toBeLessThan(
+    0.65,
+  );
   expect(await page.locator(bodySelector).textContent()).toBe(raw);
-  await expect(page.getByRole("button",{name:"2번 선택",exact:true})).toHaveAttribute("aria-pressed","true");
-  expect(JSON.stringify((await stored(page)).state.data.questions.find((q:any)=>q.id==="demo_const_201"))).toBe(sourceBefore);
-  expect((await activeSession(page)).id).toBe(sessionBefore.id);expect((await activeSession(page)).index).toBe(sessionBefore.index);
-  await toggle.click();await expect(toggle).toHaveAttribute("aria-pressed","true");
-  expect((await actualTextLines(page,bodySelector)).lines.filter(line=>line.fraction>0.8).length).toBeGreaterThanOrEqual(3);
-  expect(JSON.stringify((await stored(page)).state.data.questions.find((q:any)=>q.id==="demo_const_201"))).toBe(sourceBefore);
+  await expect(
+    page.getByRole("button", { name: "2번 선택", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(
+    JSON.stringify(
+      (await stored(page)).state.data.questions.find(
+        (q: any) => q.id === "demo_const_201",
+      ),
+    ),
+  ).toBe(sourceBefore);
+  expect((await activeSession(page)).id).toBe(sessionBefore.id);
+  expect((await activeSession(page)).index).toBe(sessionBefore.index);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  expect(
+    (await actualTextLines(page, bodySelector)).lines.filter(
+      (line) => line.fraction > 0.8,
+    ).length,
+  ).toBeGreaterThanOrEqual(3);
+  expect(
+    JSON.stringify(
+      (await stored(page)).state.data.questions.find(
+        (q: any) => q.id === "demo_const_201",
+      ),
+    ),
+  ).toBe(sourceBefore);
 });
 
-test("줄바꿈 자동·원문의 획과 실행 취소는 따로 복원하고 문제·응답을 바꾸지 않는다", async ({ page }) => {
+test("줄바꿈 자동·원문의 획과 실행 취소는 따로 복원하고 문제·응답을 바꾸지 않는다", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const pkg = layoutPackage(true);
-  const raw = physicalLines((ordinaryStem + " " + ordinaryChoice + " ").repeat(5).trim());
-  for (const question of pkg.questions) question.body = [{ type: "text", text: raw }];
+  const raw = physicalLines(
+    (ordinaryStem + " " + ordinaryChoice + " ").repeat(5).trim(),
+  );
+  for (const question of pkg.questions)
+    question.body = [{ type: "text", text: raw }];
   await beginLongDemo(page, 1, false, pkg);
   const one = page.getByRole("button", { name: "1번 선택", exact: true });
   await one.click();
-  await expect.poll(async () => { const current = await activeSession(page); return current.responses[current.questions[0].id]; }).toBe(1);
-  const before = await stored(page), session = await activeSession(page);
+  await page.getByRole("button", { name: "답 제출", exact: true }).click();
+  await expect
+    .poll(async () => {
+      const current = await activeSession(page);
+      return current.responses[current.questions[0].id];
+    })
+    .toBe(1);
+  const before = await stored(page),
+    session = await activeSession(page);
   const questionsBefore = JSON.stringify(before.state.data.questions);
-  const toggle = page.getByRole("button", { name: "줄바꿈 방식 전환", exact: true });
-  const area = page.locator('.ink-surface[data-ink-surface="body"]');
-  const marks = area.locator('g[data-ink-stroke]');
-  const paths = () => marks.locator("path").evaluateAll(nodes => nodes.map(node => node.getAttribute("d")));
+  const toggle = page.getByRole("button", {
+    name: "줄바꿈 방식 전환",
+    exact: true,
+  });
+  const area = page.locator('.ink-surface[data-ink-surface="paper"]');
+  const marks = area.locator("g[data-ink-stroke]");
+  const paths = () =>
+    marks
+      .locator("path")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("d")));
   const draw = async (id: number, offset: number) => {
     await expect(area).toHaveAttribute("data-ink-ready", "true");
     await page.evaluate(() => scrollTo(0, 0));
     const rect = (await area.boundingBox())!;
     const layer = area.locator(".ink-layer");
-    const common = { pointerId: id, pointerType: "pen", isPrimary: true, buttons: 1, button: 0, pressure: 0.5, bubbles: true };
-    await layer.dispatchEvent("pointerdown", { ...common, clientX: rect.x + 60, clientY: rect.y + 20 + offset });
-    await layer.dispatchEvent("pointermove", { ...common, clientX: rect.x + 140, clientY: rect.y + 26 + offset });
-    await layer.dispatchEvent("pointerup", { ...common, clientX: rect.x + 200, clientY: rect.y + 26 + offset, buttons: 0, pressure: 0 });
-    await expect(page.locator(".ink-tools").getByText("필기 이 기기에 저장됨", { exact: true })).toBeVisible();
+    const common = {
+      pointerId: id,
+      pointerType: "pen",
+      isPrimary: true,
+      buttons: 1,
+      button: 0,
+      pressure: 0.5,
+      bubbles: true,
+    };
+    await layer.dispatchEvent("pointerdown", {
+      ...common,
+      clientX: rect.x + 60,
+      clientY: rect.y + 20 + offset,
+    });
+    await layer.dispatchEvent("pointermove", {
+      ...common,
+      clientX: rect.x + 140,
+      clientY: rect.y + 26 + offset,
+    });
+    await layer.dispatchEvent("pointerup", {
+      ...common,
+      clientX: rect.x + 200,
+      clientY: rect.y + 26 + offset,
+      buttons: 0,
+      pressure: 0,
+    });
+    await expect(
+      page
+        .locator(".ink-tools")
+        .getByText("필기 이 기기에 저장됨", { exact: true }),
+    ).toBeVisible();
   };
-  const undo = page.getByRole("button", { name: "필기 실행 취소", exact: true });
-  const redo = page.getByRole("button", { name: "필기 다시 실행", exact: true });
-  await draw(601, 0); await draw(602, 20);
+  const undo = page.getByRole("button", {
+    name: "필기 실행 취소",
+    exact: true,
+  });
+  const redo = page.getByRole("button", {
+    name: "필기 다시 실행",
+    exact: true,
+  });
+  await page.getByRole("button", { name: "연필", exact: true }).click();
+  await draw(601, 0);
+  await draw(602, 20);
   await expect(marks).toHaveCount(2);
   const autoPaths = await paths();
-  await undo.click(); await expect(marks).toHaveCount(1);
+  await undo.click();
+  await expect(marks).toHaveCount(1);
   expect(await paths()).toEqual(autoPaths.slice(0, 1));
 
-  await toggle.click(); await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(marks).toHaveCount(0);
-  await expect(undo).toBeDisabled(); await expect(redo).toBeDisabled();
-  await draw(603, 40); await expect(marks).toHaveCount(1);
+  await expect(undo).toBeDisabled();
+  await expect(redo).toBeDisabled();
+  await draw(603, 40);
+  await expect(marks).toHaveCount(1);
   const originalPaths = await paths();
-  await undo.click(); await expect(marks).toHaveCount(0);
-  await redo.click(); await expect(marks).toHaveCount(1);
+  await undo.click();
+  await expect(marks).toHaveCount(0);
+  await redo.click();
+  await expect(marks).toHaveCount(1);
   expect(await paths()).toEqual(originalPaths);
 
-  await toggle.click(); await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
   await expect(marks).toHaveCount(1);
   expect(await paths()).toEqual(autoPaths.slice(0, 1));
   await expect(redo).toBeEnabled();
-  await redo.click(); await expect(marks).toHaveCount(2);
+  await redo.click();
+  await expect(marks).toHaveCount(2);
   expect(await paths()).toEqual(autoPaths);
-  await toggle.click(); await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(marks).toHaveCount(1);
   expect(await paths()).toEqual(originalPaths);
-  await undo.click(); await expect(marks).toHaveCount(0);
-  await redo.click(); await expect(marks).toHaveCount(1);
+  await undo.click();
+  await expect(marks).toHaveCount(0);
+  await redo.click();
+  await expect(marks).toHaveCount(1);
   expect(await paths()).toEqual(originalPaths);
 
-  expect(await area.locator(".original-content").textContent()).toBe(raw);
+  expect(await area.locator(".original-content").first().textContent()).toBe(
+    raw,
+  );
   await expect(one).toHaveAttribute("aria-pressed", "true");
   const after = await activeSession(page);
   expect(after.id).toBe(session.id);
   expect(after.index).toBe(session.index);
   expect(after.responses).toEqual(session.responses);
-  expect(JSON.stringify((await stored(page)).state.data.questions)).toBe(questionsBefore);
+  expect(JSON.stringify((await stored(page)).state.data.questions)).toBe(
+    questionsBefore,
+  );
   await page.reload();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(marks).toHaveCount(1);
   expect(await paths()).toEqual(originalPaths);
   expect((await activeSession(page)).responses).toEqual(session.responses);
-  await toggle.click(); await expect(marks).toHaveCount(2);
+  await toggle.click();
+  await expect(marks).toHaveCount(2);
   expect(await paths()).toEqual(autoPaths);
 });
