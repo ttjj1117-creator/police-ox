@@ -1,4 +1,4 @@
-export type InkMode = "pen" | "eraser";
+export type InkMode = "read" | "pen" | "eraser";
 export interface InkIdentity {
   ownerKey: string;
   namespace: "real" | "demo";
@@ -155,18 +155,29 @@ export class InkInputCoordinator {
   private multiple = false;
   private inkClickUntil = 0;
   constructor(private readonly now = () => Date.now()) {}
-  get penActive(): boolean { return this.pens.size > 0; }
-  get hasContacts(): boolean { return this.penActive || this.touches.size > 0; }
-  get hasPalmTouch(): boolean { return [...this.touches.values()].some((touch) => touch.palm); }
+  get penActive(): boolean {
+    return this.pens.size > 0;
+  }
+  get hasContacts(): boolean {
+    return this.penActive || this.touches.size > 0;
+  }
+  get hasPalmTouch(): boolean {
+    return [...this.touches.values()].some((touch) => touch.palm);
+  }
   penDown(id: number): void {
     this.pens.add(id);
     for (const touch of this.touches.values()) touch.palm = true;
   }
-  penUp(id: number): void { this.pens.delete(id); }
+  penUp(id: number): void {
+    this.pens.delete(id);
+  }
   touchDown(id: number): void {
     if (this.touches.has(id)) return;
     this.releasedBlocked.delete(id);
-    this.touches.set(id, { palm: this.penActive || this.hasPalmTouch, multiple: this.multiple });
+    this.touches.set(id, {
+      palm: this.penActive || this.hasPalmTouch,
+      multiple: this.multiple,
+    });
     if (this.touches.size > 1) {
       this.multiple = true;
       for (const touch of this.touches.values()) touch.multiple = true;
@@ -174,47 +185,95 @@ export class InkInputCoordinator {
   }
   touchUp(id: number): void {
     const touch = this.touches.get(id);
-    if (touch && (touch.palm || touch.multiple)) this.releasedBlocked.set(id, this.now() + 1000);
+    if (touch && (touch.palm || touch.multiple))
+      this.releasedBlocked.set(id, this.now() + 1000);
     this.touches.delete(id);
     if (!this.touches.size) this.multiple = false;
-    for (const [pointer, expiry] of this.releasedBlocked) if (expiry <= this.now()) this.releasedBlocked.delete(pointer);
+    for (const [pointer, expiry] of this.releasedBlocked)
+      if (expiry <= this.now()) this.releasedBlocked.delete(pointer);
   }
   touchBlocked(id?: number): boolean {
-    return this.penActive || this.hasPalmTouch || (id !== undefined && (
-      !!this.touches.get(id)?.palm || !!this.touches.get(id)?.multiple || (this.releasedBlocked.get(id) ?? 0) > this.now()
-    ));
+    return (
+      this.penActive ||
+      this.hasPalmTouch ||
+      (id !== undefined &&
+        (!!this.touches.get(id)?.palm ||
+          !!this.touches.get(id)?.multiple ||
+          (this.releasedBlocked.get(id) ?? 0) > this.now()))
+    );
   }
-  palmBlocked(id: number): boolean { return this.penActive || this.hasPalmTouch || !!this.touches.get(id)?.palm; }
+  palmBlocked(id: number): boolean {
+    return this.penActive || this.hasPalmTouch || !!this.touches.get(id)?.palm;
+  }
   canPan(id: number): boolean {
-    return this.touches.has(id) && this.touches.size === 1 && !this.multiple && !this.touchBlocked(id);
+    return (
+      this.touches.has(id) &&
+      this.touches.size === 1 &&
+      !this.multiple &&
+      !this.touchBlocked(id)
+    );
   }
-  markInkGesture(): void { this.inkClickUntil = this.now() + 500; }
-  recentInkGesture(): boolean { return this.inkClickUntil > this.now(); }
-  reset(): void { this.pens.clear(); this.touches.clear(); this.releasedBlocked.clear(); this.multiple = false; this.inkClickUntil = 0; }
+  markInkGesture(): void {
+    this.inkClickUntil = this.now() + 500;
+  }
+  recentInkGesture(): boolean {
+    return this.inkClickUntil > this.now();
+  }
+  reset(): void {
+    this.pens.clear();
+    this.touches.clear();
+    this.releasedBlocked.clear();
+    this.multiple = false;
+    this.inkClickUntil = 0;
+  }
 }
-export interface InkPanDelta { x: number; y: number }
+export interface InkPanDelta {
+  x: number;
+  y: number;
+}
 /** Slop and a locked dominant axis prevent jitter and a gesture changing purpose mid-drag. */
 export class InkFingerPan {
-  private pointer: { id: number; startX: number; startY: number; lastX: number; lastY: number; axis: "x" | "y" | null } | null = null;
-  get pointerId(): number | undefined { return this.pointer?.id; }
+  private pointer: {
+    id: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+    axis: "x" | "y" | null;
+  } | null = null;
+  get pointerId(): number | undefined {
+    return this.pointer?.id;
+  }
   start(id: number, x: number, y: number): void {
     this.pointer = { id, startX: x, startY: y, lastX: x, lastY: y, axis: null };
   }
   move(id: number, x: number, y: number, allowed: boolean): InkPanDelta {
     const pointer = this.pointer;
     if (!pointer || pointer.id !== id) return { x: 0, y: 0 };
-    if (!allowed) { this.cancel(); return { x: 0, y: 0 }; }
+    if (!allowed) {
+      this.cancel();
+      return { x: 0, y: 0 };
+    }
     if (!pointer.axis) {
-      const dx = Math.abs(x - pointer.startX), dy = Math.abs(y - pointer.startY);
+      const dx = Math.abs(x - pointer.startX),
+        dy = Math.abs(y - pointer.startY);
       if (Math.max(dx, dy) < 8) return { x: 0, y: 0 };
       pointer.axis = dy >= dx ? "y" : "x";
     }
-    const delta = { x: pointer.axis === "x" ? pointer.lastX - x : 0, y: pointer.axis === "y" ? pointer.lastY - y : 0 };
-    pointer.lastX = x; pointer.lastY = y;
+    const delta = {
+      x: pointer.axis === "x" ? pointer.lastX - x : 0,
+      y: pointer.axis === "y" ? pointer.lastY - y : 0,
+    };
+    pointer.lastX = x;
+    pointer.lastY = y;
     return delta;
   }
-  end(id: number): void { if (this.pointer?.id === id) this.cancel(); }
-  cancel(): void { this.pointer = null; }
+  end(id: number): void {
+    if (this.pointer?.id === id) this.cancel();
+  }
+  cancel(): void {
+    this.pointer = null;
+  }
 }
 const pointDistance = (p: InkPoint, a: InkPoint, b: InkPoint): number => {
   const dx = b.x - a.x,

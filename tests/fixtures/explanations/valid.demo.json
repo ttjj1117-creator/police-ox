@@ -1,0 +1,311 @@
+{
+  "format": "police-original-explanations",
+  "schemaVersion": "1.0.0",
+  "packageId": "demo-explanations-v1",
+  "packageVersion": 1,
+  "exportedAt": "2026-10-26T00:00:00.000Z",
+  "dataKind": "demo",
+  "scope": {
+    "subjectIds": [
+      "constitution"
+    ],
+    "questionIds": [
+      "demo_const_1",
+      "demo_const_2",
+      "demo_const_3",
+      "demo_const_4"
+    ]
+  },
+  "producer": "demo-fixture-generator",
+  "notes": [
+    "비법률 테스트 전용. 실제 판례·법률 검증 데이터가 아닙니다."
+  ],
+  "bases": [
+    {
+      "id": "demo-basis-A",
+      "revision": 1,
+      "type": "demo",
+      "title": "중립 도형 안내 A",
+      "identity": {
+        "authority": "비법률 시연 자료",
+        "number": "DEMO-SHAPES-A",
+        "date": "2026-10-26"
+      },
+      "sourceUrl": null,
+      "originalText": "파란 네모와 빨간 원의 이름을 확인하는 중립 시연 자료입니다.",
+      "archivedAt": "2026-10-26T00:00:00.000Z",
+      "temporalBasis": "current",
+      "asOfDate": "2026-10-26",
+      "verification": {
+        "status": "verified",
+        "checkedAt": "2026-10-26T00:00:00.000Z",
+        "checkedBy": "demo-test-only",
+        "note": "비법률 자동화 시연 확인 기록. 법률 검증 자료가 아닙니다."
+      }
+    },
+    {
+      "id": "demo-basis-B",
+      "revision": 1,
+      "type": "demo",
+      "title": "중립 도형 안내 B",
+      "identity": {
+        "authority": "비법률 시연 자료",
+        "number": "DEMO-SHAPES-B",
+        "date": "2026-10-26"
+      },
+      "sourceUrl": null,
+      "originalText": "파란 네모와 빨간 원의 이름을 확인하는 중립 시연 자료입니다.",
+      "archivedAt": "2026-10-26T00:00:00.000Z",
+      "temporalBasis": "current",
+      "asOfDate": "2026-10-26",
+      "verification": {
+        "status": "verified",
+        "checkedAt": "2026-10-26T00:00:00.000Z",
+        "checkedBy": "demo-test-only",
+        "note": "비법률 자동화 시연 확인 기록. 법률 검증 자료가 아닙니다."
+      }
+    }
+  ],
+  "issues": [
+    {
+      "id": "demo-issue-A1",
+      "basisId": "demo-basis-A",
+      "title": "모양 확인",
+      "revision": 1,
+      "excerpt": "시연 도형의 색깔과 모양을 차례로 살펴봅니다.",
+      "locator": "중립 시연 안내 첫 문단",
+      "verification": {
+        "status": "verified",
+        "checkedAt": "2026-10-26T00:00:00.000Z",
+        "checkedBy": "demo-test-only",
+        "note": "비법률 자동화 시연 확인 기록. 법률 검증 자료가 아닙니다."
+      }
+    },
+    {
+      "id": "demo-issue-A2",
+      "basisId": "demo-basis-A",
+      "title": "색깔 확인",
+      "revision": 1,
+      "excerpt": "시연 도형의 색깔과 모양을 차례로 살펴봅니다.",
+      "locator": "중립 시연 안내 첫 문단",
+      "verification": {
+        "status": "verified",
+        "checkedAt": "2026-10-26T00:00:00.000Z",
+        "checkedBy": "demo-test-only",
+        "note": "비법률 자동화 시연 확인 기록. 법률 검증 자료가 아닙니다."
+      }
+    },
+    {
+      "id": "demo-issue-B1",
+      "basisId": "demo-basis-B",
+      "title": "표시 순서",
+      "revision": 1,
+      "excerpt": "시연 도형의 색깔과 모양을 차례로 살펴봅니다.",
+      "locator": "중립 시연 안내 첫 문단",
+      "verification": {
+        "status": "verified",
+        "checkedAt": "2026-10-26T00:00:00.000Z",
+        "checkedBy": "demo-test-only",
+        "note": "비법률 자동화 시연 확인 기록. 법률 검증 자료가 아닙니다."
+      }
+    }
+  ],
+  "explanations": [
+    {
+      "id": "demo-explanation-1",
+      "revision": 1,
+      "questionId": "demo_const_1",
+      "subjectId": "constitution",
+      "questionRevision": 1,
+      "gradingRevision": 1,
+      "questionFingerprint": "706c91956f1a7a5a25bf7160689228e7a0b3b7df2d92bc9e25d77af6362a8adc",
+      "selector": {
+        "kind": "choice",
+        "number": 1
+      },
+      "expectedText": "빨간 원",
+      "explanation": "도형의 이름·색깔을 읽는 중립 시연 설명입니다. 실제 기출 해설이나 법률 판단이 아닙니다.",
+      "references": [
+        {
+          "basisId": "demo-basis-A",
+          "issueIds": [
+            "demo-issue-A1",
+            "demo-issue-A1"
+          ]
+        },
+        {
+          "basisId": "demo-basis-A",
+          "issueIds": [
+            "demo-issue-A1"
+          ]
+        }
+      ],
+      "verification": {
+        "status": "verified",
+        "checkedAt": "2026-10-26T00:00:00.000Z",
+        "checkedBy": "demo-test-only",
+        "note": "비법률 자동화 시연 확인 기록. 법률 검증 자료가 아닙니다."
+      }
+    },
+    {
+      "id": "demo-explanation-2",
+      "revision": 1,
+      "questionId": "demo_const_1",
+      "subjectId": "constitution",
+      "questionRevision": 1,
+      "gradingRevision": 1,
+      "questionFingerprint": "706c91956f1a7a5a25bf7160689228e7a0b3b7df2d92bc9e25d77af6362a8adc",
+      "selector": {
+        "kind": "entry",
+        "area": "body",
+        "choiceNumber": null,
+        "blockIndex": 1,
+        "entryIndex": 0,
+        "label": "㉠"
+      },
+      "expectedText": "이번 화면의 안내 도형: 파란 네모",
+      "explanation": "도형의 이름·색깔을 읽는 중립 시연 설명입니다. 실제 기출 해설이나 법률 판단이 아닙니다.",
+      "references": [
+        {
+          "basisId": "demo-basis-A",
+          "issueIds": [
+            "demo-issue-A1",
+            "demo-issue-A2"
+          ]
+        }
+      ],
+      "verification": {
+        "status": "verified",
+        "checkedAt": "2026-10-26T00:00:00.000Z",
+        "checkedBy": "demo-test-only",
+        "note": "비법률 자동화 시연 확인 기록. 법률 검증 자료가 아닙니다."
+      }
+    },
+    {
+      "id": "demo-explanation-3",
+      "revision": 1,
+      "questionId": "demo_const_1",
+      "subjectId": "constitution",
+      "questionRevision": 1,
+      "gradingRevision": 1,
+      "questionFingerprint": "706c91956f1a7a5a25bf7160689228e7a0b3b7df2d92bc9e25d77af6362a8adc",
+      "selector": {
+        "kind": "entry",
+        "area": "body",
+        "choiceNumber": null,
+        "blockIndex": 1,
+        "entryIndex": 1,
+        "label": "㉡"
+      },
+      "expectedText": "네 선택지는 항상 원래 순서로 표시됩니다.",
+      "explanation": "도형의 이름·색깔을 읽는 중립 시연 설명입니다. 실제 기출 해설이나 법률 판단이 아닙니다.",
+      "references": [
+        {
+          "basisId": "demo-basis-A",
+          "issueIds": [
+            "demo-issue-A2"
+          ]
+        }
+      ],
+      "verification": {
+        "status": "verified",
+        "checkedAt": "2026-10-26T00:00:00.000Z",
+        "checkedBy": "demo-test-only",
+        "note": "비법률 자동화 시연 확인 기록. 법률 검증 자료가 아닙니다."
+      }
+    },
+    {
+      "id": "demo-explanation-4",
+      "revision": 1,
+      "questionId": "demo_const_2",
+      "subjectId": "constitution",
+      "questionRevision": 2,
+      "gradingRevision": 1,
+      "questionFingerprint": "ed5893ac71b5c6dcc07f65bb67539281e88832b2a930669c01c1c44a643de5e0",
+      "selector": {
+        "kind": "choice",
+        "number": 1
+      },
+      "expectedText": "빨간 원",
+      "explanation": "도형의 이름·색깔을 읽는 중립 시연 설명입니다. 실제 기출 해설이나 법률 판단이 아닙니다.",
+      "references": [
+        {
+          "basisId": "demo-basis-A",
+          "issueIds": [
+            "demo-issue-A1"
+          ]
+        },
+        {
+          "basisId": "demo-basis-B",
+          "issueIds": [
+            "demo-issue-B1"
+          ]
+        }
+      ],
+      "verification": {
+        "status": "verified",
+        "checkedAt": "2026-10-26T00:00:00.000Z",
+        "checkedBy": "demo-test-only",
+        "note": "비법률 자동화 시연 확인 기록. 법률 검증 자료가 아닙니다."
+      }
+    },
+    {
+      "id": "demo-explanation-5",
+      "revision": 1,
+      "questionId": "demo_const_3",
+      "subjectId": "constitution",
+      "questionRevision": 1,
+      "gradingRevision": 1,
+      "questionFingerprint": "98748fdfec7d5ba24f2eda6087b9725ad15a4ddc8211b3b6e981cff15bf53581",
+      "selector": {
+        "kind": "choice",
+        "number": 1
+      },
+      "expectedText": "빨간 원",
+      "explanation": "도형의 이름·색깔을 읽는 중립 시연 설명입니다. 실제 기출 해설이나 법률 판단이 아닙니다.",
+      "references": [
+        {
+          "basisId": "demo-basis-A",
+          "issueIds": [
+            "demo-issue-A1"
+          ]
+        }
+      ],
+      "verification": {
+        "status": "draft",
+        "checkedAt": null,
+        "checkedBy": null,
+        "note": "시연 미검증 상태"
+      }
+    },
+    {
+      "id": "demo-explanation-6",
+      "revision": 1,
+      "questionId": "demo_const_4",
+      "subjectId": "constitution",
+      "questionRevision": 1,
+      "gradingRevision": 1,
+      "questionFingerprint": "16239934319ecc4ea4dbd3aaabe162ba8a50c82afff55f46cdd5aa23ea6b3096",
+      "selector": {
+        "kind": "choice",
+        "number": 1
+      },
+      "expectedText": "빨간 원",
+      "explanation": "도형의 이름·색깔을 읽는 중립 시연 설명입니다. 실제 기출 해설이나 법률 판단이 아닙니다.",
+      "references": [
+        {
+          "basisId": "demo-basis-A",
+          "issueIds": [
+            "demo-issue-A1"
+          ]
+        }
+      ],
+      "verification": {
+        "status": "hold",
+        "checkedAt": null,
+        "checkedBy": null,
+        "note": "시연 미검증 상태"
+      }
+    }
+  ]
+}

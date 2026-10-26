@@ -51,6 +51,15 @@ import type { ReviewScope } from "./review-analytics";
 import "./original.css";
 import "./review-progress.css";
 import { QuizChrome, QuizAnswerSheet } from "./QuizChrome";
+import { useExplanationLibrary } from "./explanations/library";
+import {
+  ExplanationManager,
+  ExplanationView,
+  EvidenceAnalysis,
+  type ExplanationLoadState,
+} from "./explanations/ExplanationUI";
+import { QuizInputGuard } from "./ink/InputGuard";
+import { QuizExitDialog } from "./ink/ExitDialog";
 import { ReadingFlowText } from "./ReadingFlowText";
 import {
   InkProvider,
@@ -70,6 +79,7 @@ type Page =
   | "round"
   | "exam"
   | "review"
+  | "evidence"
   | "progress"
   | "cloud"
   | "quiz"
@@ -89,6 +99,7 @@ const names: [Page, string][] = [
   ["round", "회차별 풀이"],
   ["exam", "모의고사"],
   ["review", "오답 복습"],
+  ["evidence", "근거·출제 빈도"],
   ["progress", "학습 현황"],
   ["cloud", "계정·기기 동기화"],
   ["settings", "데이터·설정"],
@@ -115,14 +126,36 @@ export function OriginalApp({
   const [envelope, setEnvelope] = useState<Envelope | null>(null);
   const cloud = useCloudSync(namespace);
   const oxCloud = useOxSync(namespace);
-  const readingOwner = JSON.stringify([namespace, namespace === "real" ? cloud.ownerId ?? "local" : "local"]);
-  const [readingPreference, setReadingPreference] = useState<{ owner: string; auto: boolean } | null>(null);
+  const explanations = useExplanationLibrary(
+    namespace === "real" ? (cloud.ownerId ?? "local") : "local",
+    namespace,
+  );
+  const readingOwner = JSON.stringify([
+    namespace,
+    namespace === "real" ? (cloud.ownerId ?? "local") : "local",
+  ]);
+  const [readingPreference, setReadingPreference] = useState<{
+    owner: string;
+    auto: boolean;
+  } | null>(null);
   const readingPreferenceKey = "original:reading-flow:" + readingOwner;
   let savedReadingFlow = true;
-  try { savedReadingFlow = localStorage.getItem(readingPreferenceKey) !== "original"; } catch { /* optional device preference */ }
-  const readingFlow = readingPreference?.owner === readingOwner ? readingPreference.auto : savedReadingFlow;
+  try {
+    savedReadingFlow =
+      localStorage.getItem(readingPreferenceKey) !== "original";
+  } catch {
+    /* optional device preference */
+  }
+  const readingFlow =
+    readingPreference?.owner === readingOwner
+      ? readingPreference.auto
+      : savedReadingFlow;
   const oxRepository = oxCloud.controller;
   const [answerSheetOpen, setAnswerSheetOpen] = useState(false);
+  const [exitRequest, setExitRequest] = useState<"finish" | "sync" | null>(
+    null,
+  );
+  const [legacyInk, setLegacyInk] = useState(false);
   const envelopeRef = useRef<Envelope | null>(null);
   const [page, setPage] = useState<Page>(() =>
     typeof window !== "undefined" &&
@@ -426,6 +459,10 @@ export function OriginalApp({
   useEffect(() => {
     if (page === "quiz") window.scrollTo({ top: 0, left: 0 });
   }, [page, sessionId, session?.index]);
+  useEffect(() => {
+    setExitRequest(null);
+    setLegacyInk(false);
+  }, [page, sessionId, q?.id, session?.status]);
   const attempted =
     session && q
       ? state?.attempts.find(
@@ -758,6 +795,7 @@ export function OriginalApp({
     const key = (event: KeyboardEvent) => {
       if (
         page !== "quiz" ||
+        exitRequest ||
         !session ||
         session.status !== "active" ||
         busy ||
@@ -788,7 +826,16 @@ export function OriginalApp({
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [page, session, busy, expired, attempted, namespace, answerSheetOpen]);
+  }, [
+    page,
+    session,
+    busy,
+    expired,
+    attempted,
+    namespace,
+    answerSheetOpen,
+    exitRequest,
+  ]);
   if (!state)
     return (
       <main className="original-loading">
@@ -797,6 +844,38 @@ export function OriginalApp({
         {error && <button onClick={() => location.reload()}>다시 시도</button>}
       </main>
     );
+  async function openEvidenceQuestion(id: string) {
+    let target: string | null = null;
+    await mutate(
+      (d) => {
+        const current = activeSession(d);
+        if (current) {
+          target = current.id;
+          return;
+        }
+        const item = d.data.questions.find(
+          (q) =>
+            q.id === id &&
+            !d.removedQuestionIds?.includes(q.id) &&
+            isEligible(q, namespace),
+        );
+        if (!item) throw Error("현재 풀 수 없는 문항입니다.");
+        target = startSession(
+          d,
+          namespace,
+          { ...defaultSelection, subjectId: item.subjectId, limit: 1 },
+          "study",
+          Date.now(),
+          [item],
+        ).id;
+      },
+      () => {
+        setSessionId(target);
+        setChoice(null);
+        setPage("quiz");
+      },
+    );
+  }
   const removedIds = new Set(state.removedQuestionIds ?? []);
   const listedQuestions = state.data.questions.filter(
     (q) => !removedIds.has(q.id),
@@ -1181,411 +1260,476 @@ export function OriginalApp({
               )}
             </>
           )}
+          {page === "evidence" && (
+            <EvidenceAnalysis
+              state={state}
+              namespace={namespace}
+              packages={explanations.packages}
+              libraryState={explanations}
+              onOpen={(id) => void openEvidenceQuestion(id)}
+              onResume={() => {
+                if (active) {
+                  setSessionId(active.id);
+                  setPage("quiz");
+                }
+              }}
+            />
+          )}
           {page === "quiz" && session && q && (
-            <InkProvider
+            <QuizInputGuard
               key={JSON.stringify([
                 namespace,
-                namespace === "real" ? cloud.ownerId : "local",
+                cloud.ownerId ?? "local",
                 session.id,
-                q.id,
-                inkContentVersion,
               ])}
-              ownerKey={
-                namespace === "real" ? (cloud.ownerId ?? "local") : "local"
-              }
-              namespace={namespace}
-              sessionId={session.id}
-              questionId={q.id}
-              contentVersion={inkContentVersion}
             >
-              <QuizChrome
-                subjectLabel={subjectLabels[q.subjectId]}
-                current={session.index + 1}
-                total={session.questions.length}
-                answered={
-                  Object.values(session.responses).filter(
-                    (value) => value != null,
-                  ).length
+              <InkProvider
+                key={JSON.stringify([
+                  namespace,
+                  namespace === "real" ? cloud.ownerId : "local",
+                  session.id,
+                  q.id,
+                  inkContentVersion,
+                ])}
+                ownerKey={
+                  namespace === "real" ? (cloud.ownerId ?? "local") : "local"
                 }
-                mode={session.mode}
-                timeLabel={
-                  session.mode === "exam"
-                    ? clockText(
-                        Math.max(0, Date.parse(session.deadlineAt!) - now),
-                      )
-                    : undefined
-                }
-                expired={expired}
-                readingFlow={readingFlow}
-                onReadingFlowChange={(auto) => {
-                  setReadingPreference({ owner: readingOwner, auto });
-                  try { localStorage.setItem(readingPreferenceKey, auto ? "auto" : "original"); } catch { /* keep the current view without changing study records */ }
-                }}
-                fontScale={state.settings.fontScale}
-                onFontScaleChange={(scale) => {
-                  void mutate((draft) => {
-                    draft.settings.fontScale = scale;
-                  });
-                }}
-                busy={busy}
-                answerSheetOpen={answerSheetOpen}
-                onToggleAnswers={() => setAnswerSheetOpen((value) => !value)}
-                menuItems={[
-                  ["home", "학습 홈"],
-                  ["progress", "학습 현황"],
-                  ["cloud", "계정·기기 동기화"],
-                  ["settings", "데이터·설정"],
-                ].map(([target, label]) => ({
-                  label,
-                  onSelect: () => navigate(target as Page),
-                }))}
-              />
-              <InkToolbar />
-              <div className="original-quiz-grid">
-                <div>
-                  <section className="original-question">
-                    <div className="original-question-meta">
-                      <span>
-                        문항 {session.index + 1} ·{" "}
-                        {namespace === "demo"
-                          ? "기능 확인용 시연"
-                          : `${q.source.year}년 ${q.source.round}차 · 원문 ${q.source.questionNumber}번`}
-                      </span>
+                namespace={namespace}
+                sessionId={session.id}
+                questionId={q.id}
+                contentVersion={inkContentVersion}
+              >
+                <QuizChrome
+                  onRequestFinish={() => setExitRequest("finish")}
+                  finishLabel={
+                    session.mode === "exam" ? "시험 제출" : "학습 종료"
+                  }
+                  subjectLabel={subjectLabels[q.subjectId]}
+                  current={session.index + 1}
+                  total={session.questions.length}
+                  answered={
+                    Object.values(session.responses).filter(
+                      (value) => value != null,
+                    ).length
+                  }
+                  mode={session.mode}
+                  timeLabel={
+                    session.mode === "exam"
+                      ? clockText(
+                          Math.max(0, Date.parse(session.deadlineAt!) - now),
+                        )
+                      : undefined
+                  }
+                  expired={expired}
+                  readingFlow={readingFlow}
+                  onReadingFlowChange={(auto) => {
+                    setReadingPreference({ owner: readingOwner, auto });
+                    try {
+                      localStorage.setItem(
+                        readingPreferenceKey,
+                        auto ? "auto" : "original",
+                      );
+                    } catch {
+                      /* keep the current view without changing study records */
+                    }
+                  }}
+                  fontScale={state.settings.fontScale}
+                  onFontScaleChange={(scale) => {
+                    void mutate((draft) => {
+                      draft.settings.fontScale = scale;
+                    });
+                  }}
+                  busy={busy}
+                  answerSheetOpen={answerSheetOpen}
+                  onToggleAnswers={() => setAnswerSheetOpen((value) => !value)}
+                  menuItems={[
+                    ["home", "학습 홈"],
+                    ["progress", "학습 현황"],
+                    ["cloud", "계정·기기 동기화"],
+                    ["settings", "데이터·설정"],
+                  ].map(([target, label]) => ({
+                    label,
+                    onSelect: () => navigate(target as Page),
+                  }))}
+                />
+                <QuizExitDialog
+                  open={exitRequest !== null && session.status === "active"}
+                  exam={session.mode === "exam"}
+                  sync={exitRequest === "sync"}
+                  onCancel={() => setExitRequest(null)}
+                  onConfirm={async () => {
+                    const sync = exitRequest === "sync";
+                    let completed = false;
+                    await mutate(
+                      (d) => {
+                        finish(d, session.id, Date.now());
+                      },
+                      () => {
+                        completed = true;
+                        setExitRequest(null);
+                        setPage("result");
+                        if (sync) void cloud.controller.sync();
+                      },
+                    );
+                    if (!completed)
+                      throw Error(
+                        "학습 종료를 저장하지 못했습니다. 취소 후 화면의 저장 재시도를 사용하세요.",
+                      );
+                  }}
+                />
+                <InkToolbar
+                  legacy={legacyInk}
+                  onToggleLegacy={() => setLegacyInk((x) => !x)}
+                />
+                <div className="original-quiz-grid">
+                  <div>
+                    <section className="original-question">
+                      <div className="original-question-meta">
+                        <span>
+                          문항 {session.index + 1} ·{" "}
+                          {namespace === "demo"
+                            ? "기능 확인용 시연"
+                            : `${q.source.year}년 ${q.source.round}차 · 원문 ${q.source.questionNumber}번`}
+                        </span>
+                        <button
+                          aria-label="다시 보기"
+                          aria-pressed={!!state.marks[q.id]}
+                          onClick={() =>
+                            mutate((d) => {
+                              if (
+                                session.mode === "exam" &&
+                                expire(d, Date.now())
+                              )
+                                return;
+                              d.marks[q.id] = !d.marks[q.id];
+                            })
+                          }
+                          disabled={
+                            busy ||
+                            (session.mode === "exam" &&
+                              (expired || session.status !== "active"))
+                          }
+                        >
+                          {state.marks[q.id] ? "★ 다시 보기" : "☆ 다시 보기"}
+                        </button>
+                      </div>
+                      <QuestionPaper legacy={legacyInk}>
+                        {legacyInk ? (
+                          <InkSurface surfaceId="body" readOnly>
+                            <Blocks
+                              blocks={q.body}
+                              assets={session.assets}
+                              readingFlow={readingFlow}
+                            />
+                          </InkSurface>
+                        ) : (
+                          <Blocks
+                            blocks={q.body}
+                            assets={session.assets}
+                            readingFlow={readingFlow}
+                          />
+                        )}
+                        <div className="original-choices">
+                          {q.choices.map((c) => {
+                            const selected =
+                              session.mode === "exam"
+                                ? session.responses[q.id] === c.number
+                                : attempted
+                                  ? attempted.response === c.number
+                                  : choice === c.number;
+                            return (
+                              <div
+                                className="original-choice-row"
+                                key={c.number}
+                              >
+                                <InkChoiceButton
+                                  type="button"
+                                  className={`original-choice-button${selected ? " chosen" : ""}`}
+                                  aria-label={`${c.number}번 선택`}
+                                  aria-pressed={selected}
+                                  disabled={
+                                    busy ||
+                                    session.status !== "active" ||
+                                    expired ||
+                                    !!attempted
+                                  }
+                                  onClick={() =>
+                                    session.mode === "exam"
+                                      ? mutate((d) => {
+                                          answer(
+                                            d,
+                                            session.id,
+                                            c.number as 1 | 2 | 3 | 4,
+                                            Date.now(),
+                                          );
+                                        })
+                                      : setChoice(c.number as 1 | 2 | 3 | 4)
+                                  }
+                                >
+                                  <span className="original-choice-number">
+                                    {c.number}
+                                  </span>
+                                </InkChoiceButton>
+                                <div className="original-choice-text">
+                                  {legacyInk ? (
+                                    <InkSurface
+                                      surfaceId={`choice-${c.number}`}
+                                      readOnly
+                                    >
+                                      <Blocks
+                                        blocks={c.blocks}
+                                        assets={session.assets}
+                                        readingFlow={readingFlow}
+                                      />
+                                    </InkSurface>
+                                  ) : (
+                                    <Blocks
+                                      blocks={c.blocks}
+                                      assets={session.assets}
+                                      readingFlow={readingFlow}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </QuestionPaper>
+                      {attempted && (
+                        <div
+                          className={`original-feedback ${attempted.result}`}
+                          role="status"
+                        >
+                          <strong>{resultLabels[attempted.result]}</strong>
+                          <p>
+                            {namespace === "demo"
+                              ? "시연 정답"
+                              : "공식 최종 정답"}{" "}
+                            {q.officialAnswer.acceptedChoices.join(", ")}번 · 내
+                            답{" "}
+                            {attempted.response === "unknown"
+                              ? "모르겠음"
+                              : `${attempted.response}번`}
+                          </p>
+                        </div>
+                      )}
+                      {session.mode !== "exam" && !attempted && (
+                        <div className="original-quiz-actions">
+                          <button
+                            className="primary"
+                            disabled={
+                              busy ||
+                              choice === null ||
+                              session.status !== "active"
+                            }
+                            onClick={() =>
+                              mutate((d) => {
+                                answer(d, session.id, choice!, Date.now());
+                              })
+                            }
+                          >
+                            답 제출
+                          </button>
+                          <button
+                            disabled={busy || session.status !== "active"}
+                            onClick={() =>
+                              mutate((d) => {
+                                answer(d, session.id, "unknown", Date.now());
+                              })
+                            }
+                          >
+                            모르겠음 제출
+                          </button>
+                          <span className="original-muted">
+                            키보드 1–4로 선택
+                          </span>
+                        </div>
+                      )}
+                      {session.mode === "exam" && (
+                        <div className="original-quiz-actions">
+                          <button
+                            aria-pressed={session.responses[q.id] === "unknown"}
+                            disabled={
+                              busy || session.status !== "active" || expired
+                            }
+                            onClick={() =>
+                              mutate((d) => {
+                                answer(d, session.id, "unknown", Date.now());
+                              })
+                            }
+                          >
+                            모르겠음
+                          </button>
+                          <button
+                            aria-pressed={!!session.review[q.id]}
+                            disabled={
+                              busy || session.status !== "active" || expired
+                            }
+                            onClick={() =>
+                              mutate((d) => {
+                                const s = d.sessions.find(
+                                  (x) => x.id === session.id,
+                                )!;
+                                if (
+                                  !expire(d, Date.now()) &&
+                                  s.status === "active"
+                                )
+                                  s.review[q.id] = !s.review[q.id];
+                              })
+                            }
+                          >
+                            {session.review[q.id]
+                              ? "검토 표시 해제"
+                              : "검토 표시"}
+                          </button>
+                          <span className="original-muted">
+                            답은 제출 전까지 바꿀 수 있어요.
+                          </span>
+                        </div>
+                      )}
+                    </section>
+                    {session.mode !== "exam" && attempted && (
+                      <ExplanationView
+                        question={q}
+                        assets={session.assets}
+                        packages={explanations.packages}
+                        namespace={namespace}
+                        libraryState={explanations}
+                      />
+                    )}
+                    <div className="original-movement">
                       <button
-                        aria-label="다시 보기"
-                        aria-pressed={!!state.marks[q.id]}
-                        onClick={() =>
-                          mutate((d) => {
-                            if (
-                              session.mode === "exam" &&
-                              expire(d, Date.now())
-                            )
-                              return;
-                            d.marks[q.id] = !d.marks[q.id];
-                          })
-                        }
+                        aria-label="이전 문항"
                         disabled={
                           busy ||
-                          (session.mode === "exam" &&
-                            (expired || session.status !== "active"))
+                          session.index === 0 ||
+                          session.status !== "active" ||
+                          expired
+                        }
+                        onClick={() =>
+                          mutate((d) => {
+                            move(d, session.id, session.index - 1, Date.now());
+                          })
                         }
                       >
-                        {state.marks[q.id] ? "★ 다시 보기" : "☆ 다시 보기"}
+                        ← 이전 문항
+                      </button>
+                      <span>
+                        {session.index + 1} / {session.questions.length}
+                      </span>
+                      <button
+                        aria-label="다음 문항"
+                        disabled={
+                          busy ||
+                          session.index === session.questions.length - 1 ||
+                          session.status !== "active" ||
+                          expired ||
+                          (session.mode !== "exam" && !attempted)
+                        }
+                        onClick={() =>
+                          mutate((d) => {
+                            move(d, session.id, session.index + 1, Date.now());
+                          })
+                        }
+                      >
+                        다음 문항 →
                       </button>
                     </div>
-                    <InkSurface surfaceId="body">
-                      <Blocks blocks={q.body} assets={session.assets} readingFlow={readingFlow} />
-                    </InkSurface>
-                    <div className="original-choices">
-                      {q.choices.map((c) => {
-                        const selected =
-                          session.mode === "exam"
-                            ? session.responses[q.id] === c.number
-                            : attempted
-                              ? attempted.response === c.number
-                              : choice === c.number;
-                        return (
-                          <div className="original-choice-row" key={c.number}>
-                            <InkChoiceButton
-                              type="button"
-                              className={`original-choice-button${selected ? " chosen" : ""}`}
-                              aria-label={`${c.number}번 선택`}
-                              aria-pressed={selected}
+                    <div className="original-finish">
+                      {namespace === "real" &&
+                        cloud.auth &&
+                        session.status === "active" && (
+                          <button
+                            disabled={busy || cloud.busy}
+                            onClick={() => setExitRequest("sync")}
+                          >
+                            학습 마치고 동기화
+                          </button>
+                        )}
+                      {session.status !== "active" && (
+                        <button
+                          className="primary"
+                          onClick={() => setPage("result")}
+                        >
+                          결과 보기
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <QuizAnswerSheet
+                    open={answerSheetOpen}
+                    onClose={() => setAnswerSheetOpen(false)}
+                    fontScale={state.settings.fontScale}
+                  >
+                    <aside className="original-answer-panel">
+                      <h2>
+                        {session.mode === "exam" ? "답안표" : "학습 진행"}
+                      </h2>
+                      <p className="original-muted">
+                        {session.mode === "exam"
+                          ? "● 응답 · ◇ 검토 표시"
+                          : "제출한 문항을 다시 확인할 수 있어요."}
+                      </p>
+                      <div className="original-answer-map">
+                        {session.questions.map((item, i) => {
+                          const recorded = state.attempts.some(
+                            (a) =>
+                              a.sessionId === session.id &&
+                              a.questionId === item.id,
+                          );
+                          const responded = session.responses[item.id] != null;
+                          return (
+                            <button
+                              key={item.id}
+                              aria-label={`${i + 1}번 문항으로 이동`}
+                              aria-current={
+                                session.index === i ? "step" : undefined
+                              }
+                              className={`${responded || recorded ? "filled" : ""} ${session.index === i ? "current" : ""}`}
                               disabled={
                                 busy ||
                                 session.status !== "active" ||
                                 expired ||
-                                !!attempted
+                                (session.mode !== "exam" &&
+                                  i > session.index &&
+                                  !attempted &&
+                                  !recorded)
                               }
-                              onClick={() =>
-                                session.mode === "exam"
-                                  ? mutate((d) => {
-                                      answer(
-                                        d,
-                                        session.id,
-                                        c.number as 1 | 2 | 3 | 4,
-                                        Date.now(),
-                                      );
-                                    })
-                                  : setChoice(c.number as 1 | 2 | 3 | 4)
-                              }
+                              onClick={() => {
+                                setAnswerSheetOpen(false);
+                                void mutate((d) => {
+                                  move(d, session.id, i, Date.now());
+                                });
+                              }}
                             >
-                              <span className="original-choice-number">
-                                {c.number}
-                              </span>
-                            </InkChoiceButton>
-                            <div className="original-choice-text">
-                              <InkSurface surfaceId={`choice-${c.number}`}>
-                                <Blocks
-                                  blocks={c.blocks}
-                                  assets={session.assets}
-                                  readingFlow={readingFlow}
-                                />
-                              </InkSurface>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {attempted && (
-                      <div
-                        className={`original-feedback ${attempted.result}`}
-                        role="status"
-                      >
-                        <strong>{resultLabels[attempted.result]}</strong>
+                              {i + 1}
+                              {session.review[item.id] && <small>◇</small>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {session.mode === "exam" && (
                         <p>
-                          {namespace === "demo"
-                            ? "시연 정답"
-                            : "공식 최종 정답"}{" "}
-                          {q.officialAnswer.acceptedChoices.join(", ")}번 · 내
-                          답{" "}
-                          {attempted.response === "unknown"
-                            ? "모르겠음"
-                            : `${attempted.response}번`}
+                          {
+                            session.questions.filter(
+                              (item) => session.responses[item.id] != null,
+                            ).length
+                          }{" "}
+                          / {session.questions.length}문항 응답
                         </p>
-                      </div>
-                    )}
-                    {session.mode !== "exam" && !attempted && (
-                      <div className="original-quiz-actions">
-                        <button
-                          className="primary"
-                          disabled={
-                            busy ||
-                            choice === null ||
-                            session.status !== "active"
-                          }
-                          onClick={() =>
-                            mutate((d) => {
-                              answer(d, session.id, choice!, Date.now());
-                            })
-                          }
-                        >
-                          답 제출
-                        </button>
-                        <button
-                          disabled={busy || session.status !== "active"}
-                          onClick={() =>
-                            mutate((d) => {
-                              answer(d, session.id, "unknown", Date.now());
-                            })
-                          }
-                        >
-                          모르겠음 제출
-                        </button>
-                        <span className="original-muted">
-                          키보드 1–4로 선택
-                        </span>
-                      </div>
-                    )}
-                    {session.mode === "exam" && (
-                      <div className="original-quiz-actions">
-                        <button
-                          aria-pressed={session.responses[q.id] === "unknown"}
-                          disabled={
-                            busy || session.status !== "active" || expired
-                          }
-                          onClick={() =>
-                            mutate((d) => {
-                              answer(d, session.id, "unknown", Date.now());
-                            })
-                          }
-                        >
-                          모르겠음
-                        </button>
-                        <button
-                          aria-pressed={!!session.review[q.id]}
-                          disabled={
-                            busy || session.status !== "active" || expired
-                          }
-                          onClick={() =>
-                            mutate((d) => {
-                              const s = d.sessions.find(
-                                (x) => x.id === session.id,
-                              )!;
-                              if (
-                                !expire(d, Date.now()) &&
-                                s.status === "active"
-                              )
-                                s.review[q.id] = !s.review[q.id];
-                            })
-                          }
-                        >
-                          {session.review[q.id]
-                            ? "검토 표시 해제"
-                            : "검토 표시"}
-                        </button>
-                        <span className="original-muted">
-                          답은 제출 전까지 바꿀 수 있어요.
-                        </span>
-                      </div>
-                    )}
-                  </section>
-                  <div className="original-movement">
-                    <button
-                      aria-label="이전 문항"
-                      disabled={
-                        busy ||
-                        session.index === 0 ||
-                        session.status !== "active" ||
-                        expired
-                      }
-                      onClick={() =>
-                        mutate((d) => {
-                          move(d, session.id, session.index - 1, Date.now());
-                        })
-                      }
-                    >
-                      ← 이전 문항
-                    </button>
-                    <span>
-                      {session.index + 1} / {session.questions.length}
-                    </span>
-                    <button
-                      aria-label="다음 문항"
-                      disabled={
-                        busy ||
-                        session.index === session.questions.length - 1 ||
-                        session.status !== "active" ||
-                        expired ||
-                        (session.mode !== "exam" && !attempted)
-                      }
-                      onClick={() =>
-                        mutate((d) => {
-                          move(d, session.id, session.index + 1, Date.now());
-                        })
-                      }
-                    >
-                      다음 문항 →
-                    </button>
-                  </div>
-                  <div className="original-finish">
-                    <button
-                      className={session.mode === "exam" ? "primary" : ""}
-                      disabled={busy || session.status !== "active"}
-                      onClick={() => {
-                        if (
-                          session.mode === "exam" &&
-                          !window.confirm(
-                            "시험을 제출할까요? 미응답은 0점으로 확정되며 이후 답을 바꿀 수 없습니다.",
-                          )
-                        )
-                          return;
-                        void mutate(
-                          (d) => {
-                            finish(d, session.id, Date.now());
-                          },
-                          () => setPage("result"),
-                        );
-                      }}
-                    >
-                      {session.mode === "exam" ? "시험 제출" : "학습 종료"}
-                    </button>
-                    {namespace === "real" &&
-                      cloud.auth &&
-                      session.status === "active" && (
-                        <button
-                          disabled={busy || cloud.busy}
-                          onClick={() => {
-                            if (
-                              session.mode === "exam" &&
-                              !window.confirm(
-                                "시험을 제출하고 동기화할까요? 미응답은 0점으로 확정됩니다.",
-                              )
-                            )
-                              return;
-                            void mutate(
-                              (d) => {
-                                finish(d, session.id, Date.now());
-                              },
-                              () => {
-                                setPage("result");
-                                void cloud.controller.sync();
-                              },
-                            );
-                          }}
-                        >
-                          학습 마치고 동기화
-                        </button>
                       )}
-                    {session.status !== "active" && (
-                      <button
-                        className="primary"
-                        onClick={() => setPage("result")}
-                      >
-                        결과 보기
-                      </button>
-                    )}
-                  </div>
+                    </aside>
+                  </QuizAnswerSheet>
                 </div>
-                <QuizAnswerSheet
-                  open={answerSheetOpen}
-                  onClose={() => setAnswerSheetOpen(false)}
-                  fontScale={state.settings.fontScale}
-                >
-                  <aside className="original-answer-panel">
-                    <h2>{session.mode === "exam" ? "답안표" : "학습 진행"}</h2>
-                    <p className="original-muted">
-                      {session.mode === "exam"
-                        ? "● 응답 · ◇ 검토 표시"
-                        : "제출한 문항을 다시 확인할 수 있어요."}
-                    </p>
-                    <div className="original-answer-map">
-                      {session.questions.map((item, i) => {
-                        const recorded = state.attempts.some(
-                          (a) =>
-                            a.sessionId === session.id &&
-                            a.questionId === item.id,
-                        );
-                        const responded = session.responses[item.id] != null;
-                        return (
-                          <button
-                            key={item.id}
-                            aria-label={`${i + 1}번 문항으로 이동`}
-                            aria-current={
-                              session.index === i ? "step" : undefined
-                            }
-                            className={`${responded || recorded ? "filled" : ""} ${session.index === i ? "current" : ""}`}
-                            disabled={
-                              busy ||
-                              session.status !== "active" ||
-                              expired ||
-                              (session.mode !== "exam" &&
-                                i > session.index &&
-                                !attempted &&
-                                !recorded)
-                            }
-                            onClick={() => {
-                              setAnswerSheetOpen(false);
-                              void mutate((d) => {
-                                move(d, session.id, i, Date.now());
-                              });
-                            }}
-                          >
-                            {i + 1}
-                            {session.review[item.id] && <small>◇</small>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {session.mode === "exam" && (
-                      <p>
-                        {
-                          session.questions.filter(
-                            (item) => session.responses[item.id] != null,
-                          ).length
-                        }{" "}
-                        / {session.questions.length}문항 응답
-                      </p>
-                    )}
-                  </aside>
-                </QuizAnswerSheet>
-              </div>
-            </InkProvider>
+              </InkProvider>
+            </QuizInputGuard>
           )}
           {page === "result" && session && (
             <Result
               state={state}
               session={session}
+              explanationPackages={explanations.packages}
+              explanationState={explanations}
               namespace={namespace}
               onHome={() => navigate("home")}
               onRetry={() => {
@@ -1677,6 +1821,24 @@ export function OriginalApp({
                   기록은 전체 백업에 포함됩니다.
                 </p>
               </section>
+              <ExplanationManager
+                key={readingOwner}
+                namespace={namespace}
+                questions={state.data.questions}
+                assets={state.data.assets}
+                packages={explanations.packages}
+                loading={explanations.loading}
+                error={explanations.error}
+                onReload={explanations.reload}
+                blocked={!!active}
+                onImport={(value) =>
+                  explanations.import(
+                    value,
+                    state.data.questions,
+                    state.data.assets,
+                  )
+                }
+              />
               <PackageManager
                 state={state}
                 namespace={namespace}
@@ -2130,7 +2292,15 @@ function Scope({
   );
 }
 
-function Blocks({ blocks, assets, readingFlow = false }: { blocks: Block[]; assets: Asset[]; readingFlow?: boolean }) {
+function Blocks({
+  blocks,
+  assets,
+  readingFlow = false,
+}: {
+  blocks: Block[];
+  assets: Asset[];
+  readingFlow?: boolean;
+}) {
   return (
     <>
       {blocks.map((b, i) =>
@@ -2143,7 +2313,9 @@ function Blocks({ blocks, assets, readingFlow = false }: { blocks: Block[]; asse
             {b.entries.map((e, j) => (
               <p key={j}>
                 <b>{e.label}</b>
-                <span><ReadingFlowText text={e.text} enabled={readingFlow} /></span>
+                <span>
+                  <ReadingFlowText text={e.text} enabled={readingFlow} />
+                </span>
               </p>
             ))}
           </div>
@@ -2165,6 +2337,8 @@ function Blocks({ blocks, assets, readingFlow = false }: { blocks: Block[]; asse
   );
 }
 function Result({
+  explanationPackages,
+  explanationState,
   state,
   session,
   namespace,
@@ -2174,6 +2348,8 @@ function Result({
 }: {
   state: OriginalState;
   session: OriginalSession;
+  explanationPackages: import("./explanations/contract").ExplanationPackage[];
+  explanationState: ExplanationLoadState;
   namespace: Namespace;
   onHome: () => void;
   onRetry: () => void;
@@ -2306,6 +2482,13 @@ function Result({
                       ? `${a.response}번`
                       : "미응답"}
                 </p>
+                <ExplanationView
+                  question={q}
+                  assets={session.assets}
+                  packages={explanationPackages}
+                  namespace={namespace}
+                  libraryState={explanationState}
+                />
                 <p className="original-muted">
                   다시 보기 {state.marks[q.id] ? "표시됨" : "표시 없음"} · 검토{" "}
                   {session.review[q.id] ? "표시됨" : "표시 없음"}
@@ -2323,4 +2506,20 @@ function clockText(ms: number) {
   return `${Math.floor(seconds / 60)
     .toString()
     .padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
+}
+
+function QuestionPaper({
+  legacy,
+  children,
+}: {
+  legacy: boolean;
+  children: import("react").ReactNode;
+}) {
+  return legacy ? (
+    <>{children}</>
+  ) : (
+    <InkSurface surfaceId="paper">
+      <div className="original-paper">{children}</div>
+    </InkSurface>
+  );
 }
