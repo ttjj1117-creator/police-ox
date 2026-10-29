@@ -41,9 +41,12 @@
   white-space: pre-wrap;
   line-height: 1.6;
 }
-.instructor-source > header {
+.original-app .instructor-source > header {
+  display: block;
+  max-width: none;
+  margin: 0;
+  padding: 0 0 0.8rem;
   border-bottom: 1px solid var(--border, #d9e2ed);
-  padding-bottom: 0.8rem;
 }
 .instructor-source h3 {
   margin: 0.25rem 0;
