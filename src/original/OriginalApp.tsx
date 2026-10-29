@@ -52,6 +52,12 @@ import "./original.css";
 import "./review-progress.css";
 import { QuizChrome, QuizAnswerSheet } from "./QuizChrome";
 import { useExplanationLibrary } from "./explanations/library";
+import { useInstructorLibrary } from "./instructor/library";
+import {
+  InstructorManager,
+  InstructorExplanationView,
+  type InstructorLoadState,
+} from "./instructor/InstructorUI";
 import {
   ExplanationManager,
   ExplanationView,
@@ -127,6 +133,10 @@ export function OriginalApp({
   const cloud = useCloudSync(namespace);
   const oxCloud = useOxSync(namespace);
   const explanations = useExplanationLibrary(
+    namespace === "real" ? (cloud.ownerId ?? "local") : "local",
+    namespace,
+  );
+  const instructorExplanations = useInstructorLibrary(
     namespace === "real" ? (cloud.ownerId ?? "local") : "local",
     namespace,
   );
@@ -1584,13 +1594,30 @@ export function OriginalApp({
                       )}
                     </section>
                     {session.mode !== "exam" && attempted && (
-                      <ExplanationView
-                        question={q}
-                        assets={session.assets}
-                        packages={explanations.packages}
-                        namespace={namespace}
-                        libraryState={explanations}
-                      />
+                      <>
+                        {(instructorExplanations.packages.length > 0 ||
+                          !!instructorExplanations.error) && (
+                          <InstructorExplanationView
+                            question={q}
+                            assets={session.assets}
+                            packages={instructorExplanations.packages}
+                            namespace={namespace}
+                            libraryState={instructorExplanations}
+                            canReveal={true}
+                          />
+                        )}
+                        {(!instructorExplanations.packages.length ||
+                          explanations.packages.length > 0 ||
+                          !!explanations.error) && (
+                          <ExplanationView
+                            question={q}
+                            assets={session.assets}
+                            packages={explanations.packages}
+                            namespace={namespace}
+                            libraryState={explanations}
+                          />
+                        )}
+                      </>
                     )}
                     <div className="original-movement">
                       <button
@@ -1715,6 +1742,8 @@ export function OriginalApp({
               session={session}
               explanationPackages={explanations.packages}
               explanationState={explanations}
+              instructorPackages={instructorExplanations.packages}
+              instructorState={instructorExplanations}
               namespace={namespace}
               onHome={() => navigate("home")}
               onRetry={() => {
@@ -1806,24 +1835,51 @@ export function OriginalApp({
                   기록은 전체 백업에 포함됩니다.
                 </p>
               </section>
-              <ExplanationManager
-                key={readingOwner}
+              <InstructorManager
+                key={"instructor:" + readingOwner}
+                scopeKey={readingOwner}
                 namespace={namespace}
                 questions={state.data.questions}
                 assets={state.data.assets}
-                packages={explanations.packages}
-                loading={explanations.loading}
-                error={explanations.error}
-                onReload={explanations.reload}
+                packages={instructorExplanations.packages}
+                loading={instructorExplanations.loading}
+                error={instructorExplanations.error}
+                onReload={instructorExplanations.reload}
+                legacyPackageCount={explanations.packages.length}
                 blocked={!!active}
-                onImport={(value) =>
-                  explanations.import(
+                onImport={async (value) => {
+                  if (activeSession(envelopeRef.current?.state ?? state))
+                    throw Error("진행 중 풀이를 종료한 뒤 해설을 변경하세요.");
+                  const result = await instructorExplanations.import(
                     value,
                     state.data.questions,
                     state.data.assets,
-                  )
-                }
+                  );
+                  explanations.reload();
+                  return result;
+                }}
               />
+              <details className="legacy-explanation-tools">
+                <summary>이전 형식 해설 관리·복구</summary>
+                <ExplanationManager
+                  key={readingOwner}
+                  namespace={namespace}
+                  questions={state.data.questions}
+                  assets={state.data.assets}
+                  packages={explanations.packages}
+                  loading={explanations.loading}
+                  error={explanations.error}
+                  onReload={explanations.reload}
+                  blocked={!!active}
+                  onImport={(value) =>
+                    explanations.import(
+                      value,
+                      state.data.questions,
+                      state.data.assets,
+                    )
+                  }
+                />
+              </details>
               <PackageManager
                 state={state}
                 namespace={namespace}
@@ -2324,6 +2380,8 @@ function Blocks({
 function Result({
   explanationPackages,
   explanationState,
+  instructorPackages,
+  instructorState,
   state,
   session,
   namespace,
@@ -2335,6 +2393,8 @@ function Result({
   session: OriginalSession;
   explanationPackages: import("./explanations/contract").ExplanationPackage[];
   explanationState: ExplanationLoadState;
+  instructorPackages: import("./instructor/contract").InstructorPackage[];
+  instructorState: InstructorLoadState;
   namespace: Namespace;
   onHome: () => void;
   onRetry: () => void;
@@ -2467,13 +2527,27 @@ function Result({
                       ? `${a.response}번`
                       : "미응답"}
                 </p>
-                <ExplanationView
-                  question={q}
-                  assets={session.assets}
-                  packages={explanationPackages}
-                  namespace={namespace}
-                  libraryState={explanationState}
-                />
+                {(instructorPackages.length > 0 || !!instructorState.error) && (
+                  <InstructorExplanationView
+                    question={q}
+                    assets={session.assets}
+                    packages={instructorPackages}
+                    namespace={namespace}
+                    libraryState={instructorState}
+                    canReveal={session.status !== "active"}
+                  />
+                )}
+                {(!instructorPackages.length ||
+                  explanationPackages.length > 0 ||
+                  !!explanationState.error) && (
+                  <ExplanationView
+                    question={q}
+                    assets={session.assets}
+                    packages={explanationPackages}
+                    namespace={namespace}
+                    libraryState={explanationState}
+                  />
+                )}
                 <p className="original-muted">
                   다시 보기 {state.marks[q.id] ? "표시됨" : "표시 없음"} · 검토{" "}
                   {session.review[q.id] ? "표시됨" : "표시 없음"}
