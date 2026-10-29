@@ -39,18 +39,22 @@ function standaloneEnclosure(line: string): boolean {
   return !stack.length;
 }
 
-function preformattedLine(line: string): boolean {
-  return line.includes("\t") || (line.match(/\|/g)?.length ?? 0) >= 2;
+function preformattedLine(line: string, flowJudgmentMarkers = false): boolean {
+  // Classification only: leading source O/X bars are not table columns.
+  const layout = flowJudgmentMarkers
+    ? line.replace(/^\s*[①-⑳㉠-㉻ㄱ-ㅎ]\s*\|[○×OX]\|/u, "")
+    : line;
+  return layout.includes("\t") || (layout.match(/\|/g)?.length ?? 0) >= 2;
 }
 
-function separateLine(line: string): boolean {
+function separateLine(line: string, flowJudgmentMarkers = false): boolean {
   const text = line.trim();
   return (
     standaloneEnclosure(text) ||
     articleHeading.test(text) ||
     shortHeading.test(text) ||
     /^[-─━=]{3,}$/u.test(text) ||
-    preformattedLine(line)
+    preformattedLine(line, flowJudgmentMarkers)
   );
 }
 
@@ -59,7 +63,10 @@ function separateLine(line: string): boolean {
  * paragraphs, list entries, headings, standalone notes and column rows keep
  * their boundaries. This is a reversible reading view, not a semantic rewrite.
  */
-export function segmentReadingFlow(text: string): ReadingFlowSegment[] {
+export function segmentReadingFlow(
+  text: string,
+  { flowJudgmentMarkers = false }: { flowJudgmentMarkers?: boolean } = {},
+): ReadingFlowSegment[] {
   const lines = text.split(/(\r\n|\n|\r)/u);
   const result: ReadingFlowSegment[] = [];
   for (let i = 0; i < lines.length; i += 2) {
@@ -68,7 +75,7 @@ export function segmentReadingFlow(text: string): ReadingFlowSegment[] {
       result.push({
         kind: "text",
         text: line,
-        ...(preformattedLine(line) ? { preserveWhitespace: true } : {}),
+        ...(preformattedLine(line, flowJudgmentMarkers) ? { preserveWhitespace: true } : {}),
       });
     const newline = lines[i + 1];
     if (!newline) continue;
@@ -77,8 +84,8 @@ export function segmentReadingFlow(text: string): ReadingFlowSegment[] {
       !line.trim() ||
       !next.trim() ||
       itemStart.test(next.trim()) ||
-      separateLine(line) ||
-      separateLine(next);
+      separateLine(line, flowJudgmentMarkers) ||
+      separateLine(next, flowJudgmentMarkers);
     result.push({ kind: hard ? "hard-break" : "soft-break", text: newline });
   }
   return result;

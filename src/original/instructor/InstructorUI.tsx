@@ -9,6 +9,7 @@ import {
   validateInstructorPackage,
   type InstructorPackage,
 } from "./contract";
+import { ReadingFlowText } from "../ReadingFlowText";
 import "./instructor.css";
 
 export interface InstructorLoadState {
@@ -296,7 +297,7 @@ function RecordView({ row }: { row: ResolvedRecord }) {
                       : "instructor-source-text"
                   }
                 >
-                  {block.text}
+                  <ReadingFlowText text={block.text} flowJudgmentMarkers />
                 </p>
               );
             const asset = row.package.assets.find(
@@ -325,7 +326,7 @@ function RecordView({ row }: { row: ResolvedRecord }) {
                 <blockquote key={i}>
                   <b>{selectorLabel(target.selector)}</b>
                   <br />
-                  {target.expectedText}
+                  <ReadingFlowText text={target.expectedText} />
                 </blockquote>
               ))}
             </details>

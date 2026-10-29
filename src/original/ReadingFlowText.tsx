@@ -5,11 +5,16 @@ import { segmentReadingFlow } from "./reading-flow";
 export const ReadingFlowText = memo(function ReadingFlowText({
   text,
   enabled = true,
+  flowJudgmentMarkers = false,
 }: {
   text: string;
   enabled?: boolean;
+  flowJudgmentMarkers?: boolean;
 }) {
-  const segments = useMemo(() => segmentReadingFlow(text), [text]);
+  const segments = useMemo(
+    () => segmentReadingFlow(text, { flowJudgmentMarkers }),
+    [text, flowJudgmentMarkers],
+  );
   if (!enabled) return text;
   return (
     <span className="original-reading-flow" data-reading-flow="auto">
