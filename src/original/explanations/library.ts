@@ -20,8 +20,12 @@ export class ExplanationRepository {
   ) {}
   private db() {
     return (this.opening ??= new Promise<IDBDatabase>((resolve, reject) => {
-      const r = (this.factory ?? indexedDB).open(this.name, 1);
-      r.onupgradeneeded = () => r.result.createObjectStore("collections");
+      const r = (this.factory ?? indexedDB).open(this.name, 2);
+      r.onupgradeneeded = () => {
+        for (const name of ["collections", "instructorCollections"])
+          if (!r.result.objectStoreNames.contains(name))
+            r.result.createObjectStore(name);
+      };
       r.onerror = () => {
         this.opening = undefined;
         reject(r.error);

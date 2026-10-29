@@ -12,6 +12,7 @@ async function setup(p: Page) {
   await expect(
     p.getByText("검증한 데이터를 저장했습니다.", { exact: true }),
   ).toBeVisible();
+  await p.getByText("이전 형식 해설 관리·복구", { exact: true }).click();
   await p
     .getByLabel("해설 JSON 가져오기", { exact: true })
     .setInputFiles(fixture("valid.demo.json"));
@@ -194,6 +195,7 @@ test("해설 없는 실제 영역은 비어 있는 상태를 지원하고 시연
     "집계 대상 원본 0문항",
   );
   await p.getByRole("button", { name: "데이터·설정", exact: true }).click();
+  await p.getByText("이전 형식 해설 관리·복구", { exact: true }).click();
   await expect(
     p.getByText(
       "등록된 해설 자료가 없습니다. 해설 없이도 기존 문제 풀이·채점은 사용할 수 있습니다.",
@@ -380,7 +382,7 @@ test("손상된 선택 해설 저장소는 미등록과 구분하고 문제 풀�
   await p.evaluate(
     (value) =>
       new Promise<void>((resolveValue, reject) => {
-        const r = indexedDB.open("police-original-explanations", 1);
+        const r = indexedDB.open("police-original-explanations");
         r.onupgradeneeded = () => r.result.createObjectStore("collections");
         r.onerror = () => reject(r.error);
         r.onsuccess = () => {
@@ -433,7 +435,7 @@ test("손상된 선택 해설 저장소는 미등록과 구분하고 문제 풀�
   const retained = await p.evaluate(
     () =>
       new Promise<any>((resolveValue, reject) => {
-        const r = indexedDB.open("police-original-explanations", 1);
+        const r = indexedDB.open("police-original-explanations");
         r.onerror = () => reject(r.error);
         r.onsuccess = () => {
           const db = r.result,
