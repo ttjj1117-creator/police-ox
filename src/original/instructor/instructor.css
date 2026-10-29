@@ -140,3 +140,12 @@
     flex: 1 1 12rem;
   }
 }
+
+/* Flow PDF line wraps without changing the stored source, including results. */
+.instructor-explanation-panel .original-reading-flow {
+  white-space: normal;
+}
+.instructor-explanation-panel .original-reading-hard-break,
+.instructor-explanation-panel .original-reading-verbatim {
+  white-space: pre-wrap;
+}
