@@ -44,7 +44,7 @@ async function fakeNetwork(context: BrowserContext, token: string) {
   await context.route("**/*", async (route) => {
     const request = route.request(),
       url = new URL(request.url());
-    if (url.origin === "http://127.0.0.1:5173") {
+    if (["127.0.0.1", "localhost"].includes(url.hostname)) {
       if (url.pathname === "/TEST_ONLY_auth-seed")
         return route.fulfill({
           contentType: "text/html",
@@ -76,6 +76,8 @@ async function fakeNetwork(context: BrowserContext, token: string) {
       requests.users++;
       return json({ id: uid, email });
     }
+    if (url.pathname === "/storage/v1/object/list/police-sync-private")
+      return json([]);
     if (url.pathname === "/rest/v1/rpc/police_sync_pull") {
       requests.pulls++;
       return json({

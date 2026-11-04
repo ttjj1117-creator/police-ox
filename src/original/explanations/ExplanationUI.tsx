@@ -7,7 +7,6 @@ import { download } from "../../data/transfer";
 import { errorMessage } from "../../domain/schema";
 import {
   explanationIndex,
-  MAX_EXPLANATION_BYTES,
   validateExplanationPackage,
   type ExplanationPackage,
 } from "./contract";
@@ -71,9 +70,12 @@ export function ExplanationManager({
         검증을 대신하지 않습니다.
       </p>
       <p className="original-muted">
-        이 기기·현재 계정·{namespace === "real" ? "실제 학습" : "시연"} 영역
-        전용입니다. 기존 전체 백업·기기 동기화에는 포함되지 않습니다. 아래에서
-        해설 파일을 내보내 다른 기기에 따로 가져올 수 있습니다.
+        {namespace === "real"
+          ? "같은 계정의 PC·태블릿에서 자동으로 동기화합니다. 로그인 전 자료는 이 기기에 보관됩니다."
+          : "시연 영역 전용 자료로 실제 계정과 구분해 보관합니다."}{" "}
+        문제·학습 기록은 변경하지 않습니다. 해설 원본은 별도로 내보낼 수
+        있습니다. 강사 해설을 등록한 계정에서는 이전 형식 해설을 보관 자료로
+        유지하고 강사 해설을 우선 표시합니다.
       </p>
       {blocked && (
         <p role="status">
@@ -100,8 +102,6 @@ export function ExplanationManager({
             if (!file) return;
             setBusy(true);
             try {
-              if (file.size > MAX_EXPLANATION_BYTES)
-                throw Error("해설 파일은 20 MiB 이하여야 합니다.");
               setPreview(
                 await validateExplanationPackage(
                   JSON.parse(await file.text()),

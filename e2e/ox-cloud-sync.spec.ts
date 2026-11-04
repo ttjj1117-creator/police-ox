@@ -68,6 +68,17 @@ class FakeOxCloud {
       if (![UID, OTHER].includes(uid))
         return json({ message: "unauthorized" }, 401);
       if (url.pathname === "/auth/v1/logout") return json({});
+      if (url.pathname === "/storage/v1/object/list/police-sync-private") {
+        const input = body(), prefix = `police-sync-private/${input.prefix}/`;
+        if (!input.prefix.startsWith(`${uid}/real/`))
+          return json({ message: "forbidden" }, 403);
+        return json([...this.objects.keys()]
+          .filter((key) => key.startsWith(prefix))
+          .map((key) => key.slice(prefix.length))
+          .filter((name) => !name.includes("/"))
+          .sort().slice(input.offset, input.offset + input.limit)
+          .map((name) => ({ name, id: name })));
+      }
       const object = url.pathname.match(
         /^\/storage\/v1\/object\/(?:authenticated\/)?(police-(?:ox-)?sync-private)\/(.+)$/,
       );

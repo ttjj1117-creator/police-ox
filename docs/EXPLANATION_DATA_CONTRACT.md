@@ -26,17 +26,17 @@ Node/npm이 PATH에 없는 이 작업 환경에서는 번들 Node로 `node_modul
 
 필수 루트 필드:
 
-| 필드 | 형식·의미 |
-|---|---|
-| format / schemaVersion | `police-original-explanations` / `1.0.0` |
-| packageId / packageVersion | 비어 있지 않은 안정 ID / 양의 정수. 동일 자료의 새 버전은 같은 ID 사용 |
-| exportedAt | UTC `Z`를 포함하는 ISO 시각 |
-| dataKind | `real` 또는 `demo`, 현재 원문 영역과 일치 |
-| scope | `{subjectIds: Subject[], questionIds: string[]}`. questionIds는 실제 수록 해설의 문항 ID 집합과 일치 |
-| producer / notes | 제작자 식별 문자열 / 안내 문자열 배열 |
-| bases / issues / explanations | 아래 자료 배열. 모든 자료는 `id`, 양의 정수 `revision`을 가짐 |
+| 필드                          | 형식·의미                                                                                            |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------- |
+| format / schemaVersion        | `police-original-explanations` / `1.0.0`                                                             |
+| packageId / packageVersion    | 비어 있지 않은 안정 ID / 양의 정수. 동일 자료의 새 버전은 같은 ID 사용                               |
+| exportedAt                    | UTC `Z`를 포함하는 ISO 시각                                                                          |
+| dataKind                      | `real` 또는 `demo`, 현재 원문 영역과 일치                                                            |
+| scope                         | `{subjectIds: Subject[], questionIds: string[]}`. questionIds는 실제 수록 해설의 문항 ID 집합과 일치 |
+| producer / notes              | 제작자 식별 문자열 / 안내 문자열 배열                                                                |
+| bases / issues / explanations | 아래 자료 배열. 모든 자료는 `id`, 양의 정수 `revision`을 가짐                                        |
 
-앱·CLI의 해설 파일 한도는 UTF-8 JSON 20 MiB다. 현재 원문 Subject는 `constitution`, `criminal`, `police`, `criminology`, `civil_general`이며 기존 문항의 과목을 그대로 사용한다. 이 패치로 미지원 시험 편성을 추가하지 않는다.
+앱·CLI는 UTF-8 JSON 해설 파일의 총 용량을 제한하지 않는다. 강사 해설의 이미지별·이미지 합계 용량 제한도 두지 않으며, 실제로 처리할 수 있는 크기는 기기의 메모리와 저장 공간에 따른다. 파일 형식·문항 연결·이미지 크기 일치·SHA-256 검사는 유지한다. 현재 원문 Subject는 `constitution`, `criminal`, `police`, `criminology`, `civil_general`이며 기존 문항의 과목을 그대로 사용한다. 이 패치로 미지원 시험 편성을 추가하지 않는다.
 
 모든 확인 기록 `verification`은 `{status, checkedAt, checkedBy, note}`다. status는 `draft | verified | hold`, checkedAt은 ISO UTC 시각 또는 null, checkedBy는 비어 있지 않은 문자열 또는 null이다. `verified`에는 확인자·시각·실제 확인 내용이 있는 note가 필요하다. **AI가 법률 근거를 확인하지 않고 verified로 표시하면 안 된다.** 앱은 제작자의 확인 기록을 검증 가능한 형태로 보관할 뿐, 가져오기 성공으로 상태를 승격하지 않는다. 미검증 초안·보류는 확정 해설과 통계에서 제외한다.
 
@@ -71,13 +71,13 @@ Node/npm이 PATH에 없는 이 작업 환경에서는 번들 Node로 `node_modul
 
 ### 선택자 (모든 위치는 0부터 시작)
 
-| 대상 | selector 예시 | expectedText |
-|---|---|---|
-| 선택지 전체 | `{"kind":"choice","number":1}` | 그 번호 선택지 blocks를 아래 문자열화 규칙으로 `\n` 연결 |
-| 본문 text 블록 | `{"kind":"block","area":"body","choiceNumber":null,"blockIndex":0}` | 해당 text의 text 그대로 |
-| 선택지 text 블록 | `{"kind":"block","area":"choice","choiceNumber":2,"blockIndex":0}` | 실제 number=2 선택지의 text |
-| 본문의 개별 보기 | `{"kind":"entry","area":"body","choiceNumber":null,"blockIndex":1,"entryIndex":0,"label":"㉠"}` | 해당 entries 항목의 text (label 제외) |
-| 선택지의 개별 보기 | 위 entry에서 area=`choice`, choiceNumber=실제 번호 | 동일 규칙 |
+| 대상               | selector 예시                                                                                   | expectedText                                             |
+| ------------------ | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| 선택지 전체        | `{"kind":"choice","number":1}`                                                                  | 그 번호 선택지 blocks를 아래 문자열화 규칙으로 `\n` 연결 |
+| 본문 text 블록     | `{"kind":"block","area":"body","choiceNumber":null,"blockIndex":0}`                             | 해당 text의 text 그대로                                  |
+| 선택지 text 블록   | `{"kind":"block","area":"choice","choiceNumber":2,"blockIndex":0}`                              | 실제 number=2 선택지의 text                              |
+| 본문의 개별 보기   | `{"kind":"entry","area":"body","choiceNumber":null,"blockIndex":1,"entryIndex":0,"label":"㉠"}` | 해당 entries 항목의 text (label 제외)                    |
+| 선택지의 개별 보기 | 위 entry에서 area=`choice`, choiceNumber=실제 번호                                              | 동일 규칙                                                |
 
 선택지 위치는 배열 순서가 아니라 number로 찾는다. entry는 statements 블록에만 사용할 수 있고 entryIndex와 label 모두 확인한다. block 선택자는 text 블록만 허용한다. 문자 오프셋으로 부분 문장을 자르는 선택자는 제공하지 않는다.
 
@@ -105,7 +105,7 @@ source/body/choices/officialAnswer는 원문 모델의 해당 객체 전체다. 
 
 동일 packageId/version/내용의 재가져오기는 자료를 늘리지 않는다. 다른 내용은 packageVersion을 증가시켜야 하고 바뀐 레코드도 revision을 올려야 한다. 낮은 버전, 같은 버전의 다른 내용, 깨진 참조, 잘못된 선택자·원문·날짜·URL은 기존 정상 자료를 건드리지 않고 거부한다. 새 패키지 전체와 기존 패키지 간 충돌을 확인한 뒤 독립 IndexedDB 트랜잭션으로 교체한다. 동시 변경은 generation 충돌로 거부한다.
 
-저장소는 `police-original-explanations`의 `collections`, 키는 `[ownerKey, namespace]`의 JSON이다. 로그인한 실제 계정·로그인 전 local·demo local을 분리한다. 기존 원문/학습 백업과 클라우드 스키마에는 필드를 추가하지 않는다. **해설은 현재 기기 전용이며 기존 전체 백업·자동 기기 동기화에 포함되지 않는다.** 해설 자료 내보내기로 원본 패키지를 다른 기기에 따로 가져온다. 개인정보·실제 법률 자료를 임의로 공개 GitHub에 올리지 않는다. 새 유료 서비스나 실행 중 GPT 호출은 없다.
+저장소는 `police-original-explanations`의 `collections`와 `instructorCollections`, 키는 `[ownerKey, namespace]`의 JSON이다. 로그인한 실제 계정·로그인 전 local·demo local을 분리한다. 실제 계정의 해설은 기존 Supabase 비공개 저장소를 통해 같은 계정의 기기에 자동 동기화한다. 로그인 전 자료는 처음 연결한 계정에 귀속하며, 나중에 로그인 전 가져온 새 자료도 같은 계정에 다시 연결한다. 다른 계정으로 자동 복사하지 않는다. 내려받은 해설은 오프라인에서도 읽을 수 있고, 오프라인에서 가져온 자료는 재연결 후 전송한다. **기존 전체 학습 백업에는 해설이 포함되지 않으므로 해설 내보내기로 원본을 별도 보관한다.** 개인정보·실제 해설 자료를 공개 GitHub에 올리지 않는다. 새 유료 서비스나 실행 중 GPT 호출은 없다. 동기화 규칙은 `EXPLANATION_SYNC.md`를 따른다.
 
 ## 열람과 출제 빈도
 

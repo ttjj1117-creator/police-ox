@@ -95,6 +95,12 @@ export function CloudPanel({
                 : "내 기기와 클라우드"}
             </h2>
             <p role="status">{cloud.message}</p>
+            {cloud.auth && cloud.explanationMessage && (
+              <p role="status">{cloud.explanationMessage}</p>
+            )}
+            {cloud.auth && cloud.explanationError && (
+              <p role="alert">{cloud.explanationError}</p>
+            )}
             {cloud.lastSuccess && (
               <p>
                 마지막 성공:{" "}

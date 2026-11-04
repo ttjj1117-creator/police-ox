@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Asset, Namespace, Question } from "../model";
+import { notifyExplanationChange } from "./sync";
 import {
   explanationIndex,
   mergeExplanationPackages,
@@ -111,6 +112,7 @@ export class ExplanationRepository {
             : (t.error ?? Error("해설 저장이 취소되었습니다.")),
         );
     });
+    notifyExplanationChange();
     return next;
   }
 }
@@ -145,6 +147,12 @@ export function useExplanationLibrary(owner: string, namespace: Namespace) {
       live = false;
     };
   }, [key, retry]);
+  useEffect(() => {
+    const changed = () => setRetry((x) => x + 1);
+    window.addEventListener("police-explanations-changed", changed);
+    return () =>
+      window.removeEventListener("police-explanations-changed", changed);
+  }, []);
   return {
     packages: loaded?.key === key ? loaded.value.packages : [],
     loading: loaded?.key !== key && error?.key !== key,

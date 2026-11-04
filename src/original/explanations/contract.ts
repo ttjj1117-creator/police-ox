@@ -156,7 +156,6 @@ export type Explanation = ExplanationPackage["explanations"][number];
 export type Basis = ExplanationPackage["bases"][number];
 export type Issue = ExplanationPackage["issues"][number];
 export type TargetSelector = z.infer<typeof selectorSchema>;
-export const MAX_EXPLANATION_BYTES = 20 * 1024 * 1024;
 export const selectorKey = (selector: TargetSelector) => stable(selector);
 export const sourceKey = (q: Question) =>
   stable([

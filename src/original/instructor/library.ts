@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import type { Asset, Namespace, Question } from "../model";
 import { canonicalExplanationValue } from "../explanations/contract";
 import {
+  explanationSyncKey,
+  mergeExplanationBundles,
+  notifyExplanationChange,
+  type ExplanationSyncMetadata,
+} from "../explanations/sync";
+import {
   mergeInstructorPackages,
   parseInstructorPackage,
   sameInstructorContent,
@@ -50,7 +56,7 @@ export class InstructorRepository {
   private async snapshot(
     owner: string,
     namespace: Namespace,
-  ): Promise<{ instructor: unknown; legacy: unknown }> {
+  ): Promise<{ instructor: unknown; legacy: unknown; metadata: unknown }> {
     const db = await this.db();
     return new Promise((resolve, reject) => {
       const t = db.transaction(
@@ -61,7 +67,9 @@ export class InstructorRepository {
         .objectStore("instructorCollections")
         .get(keyOf(owner, namespace));
       const b = t.objectStore("collections").get(keyOf(owner, namespace));
-      t.oncomplete = () => resolve({ instructor: a.result, legacy: b.result });
+      const m = t.objectStore("collections").get(explanationSyncKey(owner));
+      t.oncomplete = () =>
+        resolve({ instructor: a.result, legacy: b.result, metadata: m.result });
       t.onerror = () => reject(t.error);
       t.onabort = () => reject(t.error ?? Error("해설 읽기가 취소되었습니다."));
     });
@@ -116,6 +124,28 @@ export class InstructorRepository {
     const needsClear =
       !!legacy &&
       (!Array.isArray(legacy.packages) || legacy.packages.length > 0);
+    let metadata = snapshot.metadata as ExplanationSyncMetadata | undefined;
+    if (namespace === "real" && needsClear) {
+      if (!Array.isArray(legacy?.packages))
+        throw Error(
+          "이전 해설 자료를 보존할 수 없습니다. 기존 자료는 그대로 둡니다.",
+        );
+      const archived = mergeExplanationBundles(
+        { legacy: metadata?.archivedLegacy ?? [], instructor: [] },
+        {
+          legacy:
+            legacy.packages as import("../explanations/contract").ExplanationPackage[],
+          instructor: [],
+        },
+      );
+      metadata = {
+        generation: (metadata?.generation ?? 0) + 1,
+        archivedLegacy: archived.legacy,
+        published: metadata?.published ?? [],
+        received: metadata?.received ?? [],
+        localMigrated: metadata?.localMigrated,
+      };
+    }
     if (unchanged && !needsClear) return before;
     const db = await this.db();
     await new Promise<void>((resolve, reject) => {
@@ -127,22 +157,27 @@ export class InstructorRepository {
         b = t.objectStore("collections"),
         key = keyOf(owner, namespace);
       const getA = a.get(key),
-        getB = b.get(key);
+        getB = b.get(key),
+        getM = b.get(explanationSyncKey(owner));
       let ready = 0,
         conflict = false;
       const write = () => {
-        if (++ready < 2) return;
+        if (++ready < 3) return;
         if (
           canonicalExplanationValue(getA.result) !==
             canonicalExplanationValue(snapshot.instructor) ||
           canonicalExplanationValue(getB.result) !==
-            canonicalExplanationValue(snapshot.legacy)
+            canonicalExplanationValue(snapshot.legacy) ||
+          canonicalExplanationValue(getM.result) !==
+            canonicalExplanationValue(snapshot.metadata)
         ) {
           conflict = true;
           t.abort();
           return;
         }
         if (!unchanged) a.put(next, key);
+        if (namespace === "real" && needsClear)
+          b.put(metadata, explanationSyncKey(owner));
         if (needsClear)
           b.put(
             {
@@ -158,6 +193,7 @@ export class InstructorRepository {
       };
       getA.onsuccess = write;
       getB.onsuccess = write;
+      getM.onsuccess = write;
       t.oncomplete = () => resolve();
       t.onerror = () => reject(t.error);
       t.onabort = () =>
@@ -172,6 +208,7 @@ export class InstructorRepository {
                 )),
         );
     });
+    notifyExplanationChange();
     return next;
   }
   async clearLegacy(owner: string, namespace: Namespace): Promise<void> {
@@ -243,6 +280,12 @@ export function useInstructorLibrary(owner: string, namespace: Namespace) {
       live = false;
     };
   }, [owner, namespace, key, retry]);
+  useEffect(() => {
+    const changed = () => setRetry((v) => v + 1);
+    window.addEventListener("police-explanations-changed", changed);
+    return () =>
+      window.removeEventListener("police-explanations-changed", changed);
+  }, []);
   return {
     packages: loaded?.key === key ? loaded.value.packages : [],
     loading: loaded?.key !== key && error?.key !== key,
