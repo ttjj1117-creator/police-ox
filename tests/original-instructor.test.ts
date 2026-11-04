@@ -302,6 +302,79 @@ describe("instructor source contract and binding", () => {
     (pkg.assets[0] as any).base64 = "data:image/svg+xml;base64,abc";
     expect(() => parseInstructorPackage(pkg)).toThrow();
   });
+  it("accepts images above the former per-image and total caps while still checking actual bytes and hashes", async () => {
+    const bytes = Buffer.alloc(6 * 1024 * 1024);
+    bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    const sha256 = [
+      ...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+    ]
+      .map((v) => v.toString(16).padStart(2, "0"))
+      .join("");
+    for (const assetId of ["large-neutral-image-a", "large-neutral-image-b"]) {
+      pkg.assets.push({
+        assetId,
+        mimeType: "image/png",
+        sha256,
+        relativePath: `assets/${assetId}.png`,
+        byteSize: bytes.length,
+        documentId: "document",
+        questionId: source.questions[0].id,
+        location: pkg.records[0].locations[0],
+        alt: "neutral synthetic size fixture",
+        base64: bytes.toString("base64"),
+      });
+      pkg.records[0].blocks.push({
+        type: "image",
+        role: "source_layout",
+        assetId,
+        alt: "neutral synthetic size fixture",
+        locations: pkg.records[0].locations,
+      });
+    }
+    const repository = new InstructorRepository(
+      new IDBFactory(),
+      "large-images",
+    );
+    try {
+      const saved = await repository.import(
+        "owner",
+        "demo",
+        pkg,
+        source.questions,
+        source.assets,
+      );
+      expect(saved.packages[0].assets.map((a) => a.byteSize)).toEqual([
+        bytes.length,
+        bytes.length,
+      ]);
+      const invalid = structuredClone(pkg);
+      invalid.packageVersion++;
+      invalid.assets[0].byteSize--;
+      await expect(
+        repository.import(
+          "owner",
+          "demo",
+          invalid,
+          source.questions,
+          source.assets,
+        ),
+      ).rejects.toThrow("크기 불일치");
+      invalid.assets[0].byteSize++;
+      invalid.assets[0].sha256 = "f".repeat(64);
+      await expect(
+        repository.import(
+          "owner",
+          "demo",
+          invalid,
+          source.questions,
+          source.assets,
+        ),
+      ).rejects.toThrow("해시 불일치");
+      expect(await repository.read("owner", "demo")).toEqual(saved);
+    } finally {
+      await repository.close();
+    }
+  }, 30_000);
   it("does not reorder packages on repeated import and rejects downgrade/same-revision edits", () => {
     const other = structuredClone(pkg);
     other.packageId = "other";

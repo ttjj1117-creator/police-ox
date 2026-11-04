@@ -3,7 +3,6 @@ import type { Asset, Namespace, Question } from "../model";
 import { download } from "../../data/transfer";
 import { errorMessage } from "../../domain/schema";
 import {
-  MAX_INSTRUCTOR_BYTES,
   resolveInstructorRecords,
   summarizeInstructorPackage,
   validateInstructorPackage,
@@ -83,9 +82,10 @@ export function InstructorManager({
         정답·학습 기록은 그대로 유지합니다.
       </p>
       <p className="original-muted">
-        {namespace === "real" ? "실제 학습" : "시연"} 영역 전용입니다. 강사
-        해설은 기기마다 따로 가져옵니다. 법률 검증 자료와 구분해 표시하며,
-        자료에 없는 해설은 추가하지 않습니다.
+        {namespace === "real"
+          ? "같은 계정의 PC·태블릿에서 자동으로 동기화합니다. 로그인 전 자료는 이 기기에 보관됩니다."
+          : "시연 영역 전용 자료로 실제 계정과 구분해 보관합니다."}{" "}
+        법률 검증 자료와 구분해 표시하며, 자료에 없는 해설은 추가하지 않습니다.
       </p>
       {legacyPackageCount > 0 && (
         <p className="instructor-replacement-notice">
@@ -114,10 +114,6 @@ export function InstructorManager({
             const captured = context;
             setBusy(true);
             try {
-              if (file.size > MAX_INSTRUCTOR_BYTES)
-                throw Error(
-                  `강사 해설 파일은 ${MAX_INSTRUCTOR_BYTES / 1024 / 1024} MiB 이하여야 합니다.`,
-                );
               const value = await validateInstructorPackage(
                 JSON.parse(await file.text()),
                 namespace,

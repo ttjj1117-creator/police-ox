@@ -27,6 +27,7 @@ import {
   type CloudConfig,
 } from "./transport";
 import type { ReceivedEvent, SyncEvent } from "./types";
+import { syncExplanationLibraries } from "../explanations/sync-runner";
 import { usableClock } from "./clock";
 import {
   authReturnUrl,
@@ -50,6 +51,9 @@ export interface CloudView {
   meta: SyncLocal | null;
   generation: number;
   conflictIds: string[];
+  explanationMessage: string;
+  explanationError: string;
+  explanationPackages: number;
 }
 const initialView: CloudView = {
   ready: false,
@@ -64,6 +68,9 @@ const initialView: CloudView = {
   meta: null,
   generation: 0,
   conflictIds: [],
+  explanationMessage: "",
+  explanationError: "",
+  explanationPackages: 0,
 };
 export class CloudController {
   readonly store: SyncAccountStore;
@@ -73,6 +80,7 @@ export class CloudController {
   private enabled = true;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running: Promise<void> | null = null;
+  private rescheduleExplanations = false;
   private initialization: Promise<void> | null = null;
   private refreshPromise: Promise<AuthSession> | null = null;
   private signingOut = false;
@@ -275,6 +283,9 @@ export class CloudController {
         generation: 0,
         lastSuccess: null,
         error: "",
+        explanationMessage: "",
+        explanationError: "",
+        explanationPackages: 0,
         message:
           "로그아웃했습니다. 원문·OX 계정의 미전송 기록은 이 기기에 보관되어 같은 계정으로 다시 로그인하면 전송됩니다.",
       });
@@ -292,6 +303,10 @@ export class CloudController {
       this.timer = null;
       void this.sync();
     }, 500);
+  };
+  scheduleExplanationSync = () => {
+    if (this.running) this.rescheduleExplanations = true;
+    else this.schedule();
   };
   async reload() {
     if (!this.view.ownerId) return;
@@ -384,10 +399,38 @@ export class CloudController {
       return;
     }
     const owner = this.view.ownerId;
+    let explanationWork: Promise<void> | null = null;
     this.emit({ busy: true, error: "", message: "동기화 중" });
     this.running = (async () => {
       const auth = await this.auth(),
         transport = this.transport!;
+      this.emit({ explanationMessage: "해설 동기화 중", explanationError: "" });
+      // Libraries have their own immutable objects and merge rules. A question
+      // conflict must not stop explanation delivery, or vice versa.
+      explanationWork = syncExplanationLibraries(
+        owner,
+        auth,
+        transport.config,
+        {
+          current: () =>
+            this.view.ownerId === owner && this.enabled && !this.signingOut,
+        },
+      )
+        .then((count) => {
+          if (this.view.ownerId === owner)
+            this.emit({
+              explanationMessage: `해설 동기화 완료 · 강사 ${count.instructor}개 · 이전 형식 ${count.legacy}개 자료 묶음`,
+              explanationPackages: count.instructor + count.legacy,
+              explanationError: "",
+            });
+        })
+        .catch((e) => {
+          if (this.view.ownerId === owner)
+            this.emit({
+              explanationMessage: "해설은 이 기기에 보관됨 · 다시 동기화 필요",
+              explanationError: message(e),
+            });
+        });
       await this.apply(owner, []);
       const pullAll = async () => {
         for (let page = 0; page < 200; page++) {
@@ -463,9 +506,14 @@ export class CloudController {
         });
         await this.reload();
       })
-      .finally(() => {
+      .finally(async () => {
+        await explanationWork;
         this.running = null;
         this.emit({ busy: false });
+        if (this.rescheduleExplanations) {
+          this.rescheduleExplanations = false;
+          this.schedule();
+        }
       });
     return this.running;
   }
@@ -700,6 +748,10 @@ export function useCloudSync(namespace: string) {
     };
     const onFocus = () => controller.schedule();
     window.addEventListener("police-sync-local", onLocal);
+    window.addEventListener(
+      "police-explanations-local",
+      controller.scheduleExplanationSync,
+    );
     window.addEventListener("online", onFocus);
     window.addEventListener("focus", onFocus);
     const visibility = () => {
@@ -708,6 +760,10 @@ export function useCloudSync(namespace: string) {
     document.addEventListener("visibilitychange", visibility);
     return () => {
       window.removeEventListener("police-sync-local", onLocal);
+      window.removeEventListener(
+        "police-explanations-local",
+        controller.scheduleExplanationSync,
+      );
       window.removeEventListener("online", onFocus);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", visibility);

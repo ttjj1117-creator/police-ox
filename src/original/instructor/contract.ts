@@ -7,9 +7,6 @@ import {
   targetText,
 } from "../explanations/contract";
 
-export const MAX_INSTRUCTOR_BYTES = 32 * 1024 * 1024;
-export const MAX_INSTRUCTOR_ASSET_BYTES = 5 * 1024 * 1024;
-const MAX_TOTAL_ASSET_BYTES = 10 * 1024 * 1024;
 const id = z.string().min(1).max(200);
 const text = z.string().max(500000);
 const version = z.number().int().positive();
@@ -230,7 +227,7 @@ const assetSchema = z
           !v.split("/").includes(".."),
         "자산 상대 경로가 올바르지 않습니다.",
       ),
-    byteSize: version.max(MAX_INSTRUCTOR_ASSET_BYTES),
+    byteSize: version.safe(),
     documentId: id,
     questionId: id.optional(),
     location: locationSchema,
@@ -238,9 +235,10 @@ const assetSchema = z
     base64: z
       .string()
       .min(1)
-      .max(Math.ceil(MAX_INSTRUCTOR_ASSET_BYTES / 3) * 4)
-      .regex(
-        /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,
+      .refine(
+        (value) =>
+          value.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(value),
+        "자산 base64 형식이 올바르지 않습니다.",
       ),
   })
   .strict();
@@ -307,8 +305,6 @@ export function parseInstructorPackage(value: unknown): InstructorPackage {
   unique(p.assets, (a) => a.assetId, "자산");
   const docs = new Map(p.documents.map((d) => [d.documentId, d]));
   const assets = new Map(p.assets.map((a) => [a.assetId, a]));
-  if (p.assets.reduce((n, a) => n + a.byteSize, 0) > MAX_TOTAL_ASSET_BYTES)
-    throw Error("해설 자산은 합계 10 MiB 이하여야 합니다.");
   for (const r of p.records) {
     const d = docs.get(r.documentId);
     if (!d) throw Error(`출처 문서 없음: ${r.id}`);
@@ -361,10 +357,7 @@ export async function validateInstructorAssets(
   for (const a of p.assets) {
     const raw = atob(a.base64),
       bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
-    if (
-      bytes.length !== a.byteSize ||
-      bytes.length > MAX_INSTRUCTOR_ASSET_BYTES
-    )
+    if (bytes.length !== a.byteSize)
       throw Error(`이미지 크기 불일치: ${a.assetId}`);
     const signature =
       a.mimeType === "image/png"

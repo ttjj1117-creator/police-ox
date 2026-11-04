@@ -70,6 +70,17 @@ class FakeCloud {
       if (![UID, OTHER].includes(uid))
         return json({ message: "unauthorized" }, 401);
       if (url.pathname === "/auth/v1/logout") return json({});
+      if (url.pathname === "/storage/v1/object/list/police-sync-private") {
+        const input = body(), prefix = `${input.prefix}/`;
+        if (!prefix.startsWith(`${uid}/real/`))
+          return json({ message: "forbidden" }, 403);
+        return json([...this.objects.keys()]
+          .filter((key) => key.startsWith(prefix))
+          .map((key) => key.slice(prefix.length))
+          .filter((name) => !name.includes("/"))
+          .sort().slice(input.offset, input.offset + input.limit)
+          .map((name) => ({ name, id: name })));
+      }
       const storage = url.pathname.match(
         /^\/storage\/v1\/object\/(?:authenticated\/)?police-sync-private\/(.+)$/,
       );
@@ -209,7 +220,7 @@ async function nav(page: Page, label: string) {
 }
 async function login(page: Page, email = "owner@example.com") {
   page.setDefaultTimeout(10000);
-  await page.goto("http://127.0.0.1:5173/?view=original&mode=real");
+  await page.goto("/?view=original&mode=real");
   await nav(page, "계정·기기 동기화");
   const projectUrl = page.getByLabel("Supabase 프로젝트 URL", { exact: true });
   if (!(await projectUrl.isVisible()))

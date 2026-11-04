@@ -1,9 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import {
-  MAX_EXPLANATION_BYTES,
-  validateExplanationPackage,
-} from "../src/original/explanations/contract";
+import { validateExplanationPackage } from "../src/original/explanations/contract";
 import { validatePackage } from "../src/original/validation";
 import { stable } from "../src/original/validation";
 
@@ -18,8 +15,6 @@ async function main() {
       "사용법: npm run validate:explanations -- <해설.json> --questions <원문패키지.json> [--questions <추가원문.json>]\n이 검사는 구조·참조·원문 버전 일치 검사이며 법률 검증이 아닙니다.",
     );
   const raw = await readFile(resolve(file));
-  if (raw.byteLength > MAX_EXPLANATION_BYTES)
-    throw Error("해설 파일은 20 MiB 이하여야 합니다.");
   const banks = [];
   for (const questionFile of questionFiles) {
     const source = JSON.parse(await readFile(resolve(questionFile), "utf8"));
