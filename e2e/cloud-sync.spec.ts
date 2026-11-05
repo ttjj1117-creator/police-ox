@@ -560,7 +560,7 @@ test("fake service: 원격 삭제·표시 해제는 오래된 기기에서 되�
   );
   await a.getByRole("button", { name: /^답안표 / }).click();
   await a
-    .getByRole("button", { name: `${target + 1}번 문항으로 이동`, exact: true })
+    .getByRole("button", { name: new RegExp(`^${target + 1}번 문항으로 이동 ·`) })
     .click();
   await a.getByRole("button", { name: "1번 선택", exact: true }).click();
   await pc.setOffline(true);

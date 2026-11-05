@@ -551,9 +551,7 @@ test.describe("터치·긴 문제·회전", () => {
     await expect(sheet).toBeHidden();
     await expect(toggle).toBeFocused();
     await toggle.click();
-    await sheet
-      .getByRole("button", { name: "2번 문항으로 이동", exact: true })
-      .click();
+    await sheet.getByRole("button", { name: /^2번 문항으로 이동 ·/ }).click();
     await expect(sheet).toBeHidden();
     await expect.poll(async () => (await activeSession(page)).index).toBe(1);
     await page.getByRole("button", { name: "2번 선택", exact: true }).click();

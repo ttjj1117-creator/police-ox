@@ -14,6 +14,7 @@ import {
   weakQuestions,
 } from "./engine";
 import type {
+  Attempt,
   OriginalSelection,
   OriginalSession,
   OriginalState,
@@ -186,7 +187,6 @@ export function OriginalApp({
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
-  const [now, setNow] = useState(Date.now());
   const [choice, setChoice] = useState<1 | 2 | 3 | 4 | null>(null);
   const lock = useRef(false);
   const pendingLock = useRef(false);
@@ -372,7 +372,7 @@ export function OriginalApp({
   }
   useEffect(() => {
     const tick = () => {
-      setNow(Date.now());
+      // Deadline enforcement stays independent of the display-only countdown.
       const e = envelopeRef.current;
       const current = e && activeSession(e.state);
       if (current?.deadlineAt && Date.now() >= Date.parse(current.deadlineAt)) {
@@ -471,14 +471,25 @@ export function OriginalApp({
     setExitRequest(false);
     setLegacyInk(false);
   }, [page, sessionId, q?.id, session?.status]);
-  const attempted =
-    session && q
-      ? state?.attempts.find(
-          (a) => a.sessionId === session.id && a.questionId === q.id,
-        )
-      : undefined;
+  const sessionAttempts = useMemo(() => {
+    const index = new Map<string, Attempt>();
+    if (!session || !state) return index;
+    const snapshots = new Map(session.questions.map((item) => [item.id, item]));
+    for (const attempt of state.attempts) {
+      const snapshot = snapshots.get(attempt.questionId);
+      if (
+        attempt.sessionId === session.id &&
+        attempt.mode === session.mode &&
+        snapshot?.revision === attempt.revision &&
+        snapshot.gradingRevision === attempt.gradingRevision
+      )
+        index.set(attempt.questionId, attempt);
+    }
+    return index;
+  }, [state?.attempts, session?.id, session?.mode, session?.questions]);
+  const attempted = q ? sessionAttempts.get(q.id) : undefined;
   const expired = !!(
-    session?.deadlineAt && now >= Date.parse(session.deadlineAt)
+    session?.deadlineAt && Date.now() >= Date.parse(session.deadlineAt)
   );
   useEffect(() => {
     setChoice(null);
@@ -1321,13 +1332,7 @@ export function OriginalApp({
                     ).length
                   }
                   mode={session.mode}
-                  timeLabel={
-                    session.mode === "exam"
-                      ? clockText(
-                          Math.max(0, Date.parse(session.deadlineAt!) - now),
-                        )
-                      : undefined
-                  }
+                  deadlineAt={session.deadlineAt}
                   expired={expired}
                   readingFlow={readingFlow}
                   onReadingFlowChange={(auto) => {
@@ -1593,32 +1598,6 @@ export function OriginalApp({
                         </div>
                       )}
                     </section>
-                    {session.mode !== "exam" && attempted && (
-                      <>
-                        {(instructorExplanations.packages.length > 0 ||
-                          !!instructorExplanations.error) && (
-                          <InstructorExplanationView
-                            question={q}
-                            assets={session.assets}
-                            packages={instructorExplanations.packages}
-                            namespace={namespace}
-                            libraryState={instructorExplanations}
-                            canReveal={true}
-                          />
-                        )}
-                        {(!instructorExplanations.packages.length ||
-                          explanations.packages.length > 0 ||
-                          !!explanations.error) && (
-                          <ExplanationView
-                            question={q}
-                            assets={session.assets}
-                            packages={explanations.packages}
-                            namespace={namespace}
-                            libraryState={explanations}
-                          />
-                        )}
-                      </>
-                    )}
                     <div className="original-movement">
                       <button
                         aria-label="이전 문항"
@@ -1657,6 +1636,32 @@ export function OriginalApp({
                         다음 문항 →
                       </button>
                     </div>
+                    {session.mode !== "exam" && attempted && (
+                      <>
+                        {(instructorExplanations.packages.length > 0 ||
+                          !!instructorExplanations.error) && (
+                          <InstructorExplanationView
+                            question={q}
+                            assets={session.assets}
+                            packages={instructorExplanations.packages}
+                            namespace={namespace}
+                            libraryState={instructorExplanations}
+                            canReveal={true}
+                          />
+                        )}
+                        {(!instructorExplanations.packages.length ||
+                          explanations.packages.length > 0 ||
+                          !!explanations.error) && (
+                          <ExplanationView
+                            question={q}
+                            assets={session.assets}
+                            packages={explanations.packages}
+                            namespace={namespace}
+                            libraryState={explanations}
+                          />
+                        )}
+                      </>
+                    )}
                     {session.status !== "active" && (
                       <div className="original-finish">
                         <button
@@ -1673,64 +1678,76 @@ export function OriginalApp({
                     onClose={() => setAnswerSheetOpen(false)}
                     fontScale={state.settings.fontScale}
                   >
-                    <aside className="original-answer-panel">
-                      <h2>
-                        {session.mode === "exam" ? "답안표" : "학습 진행"}
-                      </h2>
-                      <p className="original-muted">
-                        {session.mode === "exam"
-                          ? "● 응답 · ◇ 검토 표시"
-                          : "제출한 문항을 다시 확인할 수 있어요."}
-                      </p>
-                      <div className="original-answer-map">
-                        {session.questions.map((item, i) => {
-                          const recorded = state.attempts.some(
-                            (a) =>
-                              a.sessionId === session.id &&
-                              a.questionId === item.id,
-                          );
-                          const responded = session.responses[item.id] != null;
-                          return (
-                            <button
-                              key={item.id}
-                              aria-label={`${i + 1}번 문항으로 이동`}
-                              aria-current={
-                                session.index === i ? "step" : undefined
-                              }
-                              className={`${responded || recorded ? "filled" : ""} ${session.index === i ? "current" : ""}`}
-                              disabled={
-                                busy ||
-                                session.status !== "active" ||
-                                expired ||
-                                (session.mode !== "exam" &&
-                                  i > session.index &&
-                                  !attempted &&
-                                  !recorded)
-                              }
-                              onClick={() => {
-                                setAnswerSheetOpen(false);
-                                void mutate((d) => {
-                                  move(d, session.id, i, Date.now());
-                                });
-                              }}
-                            >
-                              {i + 1}
-                              {session.review[item.id] && <small>◇</small>}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {session.mode === "exam" && (
-                        <p>
-                          {
-                            session.questions.filter(
-                              (item) => session.responses[item.id] != null,
-                            ).length
-                          }{" "}
-                          / {session.questions.length}문항 응답
+                    {answerSheetOpen && (
+                      <aside className="original-answer-panel">
+                        <h2>
+                          {session.mode === "exam" ? "답안표" : "학습 진행"}
+                        </h2>
+                        <p className="original-muted">
+                          {session.mode === "exam"
+                            ? "● 응답 · ◇ 검토 표시"
+                            : "제출한 문항을 다시 확인할 수 있어요."}
                         </p>
-                      )}
-                    </aside>
+                        <div className="original-answer-map">
+                          {session.questions.map((item, i) => {
+                            const recorded = sessionAttempts.has(item.id);
+                            const responded =
+                              session.responses[item.id] != null;
+                            const publicResult =
+                              session.mode !== "exam" ||
+                              session.status === "completed";
+                            const result = publicResult
+                              ? sessionAttempts.get(item.id)?.result
+                              : undefined;
+                            const status = result ?? "unsubmitted";
+                            const statusLabel = result
+                              ? resultLabels[result]
+                              : responded
+                                ? "응답 · 미제출"
+                                : "미응답 · 미제출";
+                            return (
+                              <button
+                                key={item.id}
+                                aria-label={`${i + 1}번 문항으로 이동 · ${statusLabel}${session.index === i ? " · 현재 문항" : ""}${session.review[item.id] ? " · 검토 표시" : ""}`}
+                                aria-current={
+                                  session.index === i ? "step" : undefined
+                                }
+                                data-result={status}
+                                className={`${responded || recorded ? "filled" : ""} result-${status} ${session.index === i ? "current" : ""}`}
+                                disabled={
+                                  busy ||
+                                  session.status !== "active" ||
+                                  expired ||
+                                  (session.mode !== "exam" &&
+                                    i > session.index &&
+                                    !attempted &&
+                                    !recorded)
+                                }
+                                onClick={() => {
+                                  setAnswerSheetOpen(false);
+                                  void mutate((d) => {
+                                    move(d, session.id, i, Date.now());
+                                  });
+                                }}
+                              >
+                                {i + 1}
+                                {session.review[item.id] && <small>◇</small>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {session.mode === "exam" && (
+                          <p>
+                            {
+                              session.questions.filter(
+                                (item) => session.responses[item.id] != null,
+                              ).length
+                            }{" "}
+                            / {session.questions.length}문항 응답
+                          </p>
+                        )}
+                      </aside>
+                    )}
                   </QuizAnswerSheet>
                 </div>
               </InkProvider>
@@ -2560,13 +2577,6 @@ function Result({
     </>
   );
 }
-function clockText(ms: number) {
-  const seconds = Math.ceil(ms / 1000);
-  return `${Math.floor(seconds / 60)
-    .toString()
-    .padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
-}
-
 function QuestionPaper({
   legacy,
   children,

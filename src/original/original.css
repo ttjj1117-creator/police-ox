@@ -312,6 +312,11 @@
   color: var(--muted);
   margin: 0;
 }
+.original-app.is-quiz {
+  /* Include the reading gutters in the zoom policy. Their vertical scrolling
+     stays native; the inner quiz scope routes its own finger pan. */
+  touch-action: pan-y;
+}
 .original-resume {
   background: #eaf0e4 !important;
   display: flex;
@@ -710,13 +715,34 @@
   position: relative;
 }
 .original-answer-map button.filled {
+  background: #e7ecee;
+  border-color: #cbd5d8;
+  color: #4f6269;
+}
+.original-answer-map button.result-correct {
   background: #dfebd8;
   border-color: #c4d7b7;
   color: #48653f;
 }
+.original-answer-map button.result-incorrect {
+  background: #f0dedc;
+  border-color: #dcbfbb;
+  color: #85504c;
+}
+.original-answer-map button.result-unknown {
+  background: #ede9df;
+  border-color: #d8d0be;
+  color: #716752;
+}
+.original-answer-map button.result-unanswered,
+.original-answer-map button:not(.filled) {
+  background: #fff;
+  border-color: #dfe6d8;
+  color: #52605a;
+}
 .original-answer-map button.current {
-  border: 2px solid #507957;
-  background: #f5f8ef;
+  outline: 2px solid #507957;
+  outline-offset: 1px;
 }
 .original-answer-map small {
   font-size: 0.65em;

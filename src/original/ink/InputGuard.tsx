@@ -58,6 +58,11 @@ interface Contact {
   blocked: boolean;
   cancelled: boolean;
   ended: boolean;
+  trusted?: boolean;
+  primary?: boolean;
+  validPenUp?: boolean;
+  activated?: boolean;
+  fallbackTimer?: ReturnType<typeof setTimeout>;
 }
 const controlOf = (target: EventTarget | null) =>
   target instanceof Element
@@ -77,6 +82,9 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
     // Native Touch identifiers and PointerEvent IDs occupy different namespaces.
     const nativeContacts = new Map<number, Contact>();
     let last: Contact | null = null;
+    let lastPen: Contact | null = null;
+    let activating: Contact | null = null;
+    const fallbackTimers = new Set<ReturnType<typeof setTimeout>>();
     const pan = new InkFingerPan();
     const inside = (target: EventTarget | null) =>
       target instanceof Node && !!scope.current?.contains(target);
@@ -86,6 +94,55 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
     };
     const distance = (c: Contact, x: number, y: number) => {
       if (Math.hypot(x - c.x, y - c.y) >= 8) c.moved = true;
+    };
+    const endsOnControl = (c: Contact, e: PointerEvent) => {
+      if (!c.control || c.control.matches(":disabled")) return false;
+      const rect = c.control.getBoundingClientRect();
+      if (
+        e.clientX < rect.left ||
+        e.clientX >= rect.right ||
+        e.clientY < rect.top ||
+        e.clientY >= rect.bottom
+      )
+        return false;
+      // Pointer capture retargets up/click even after the tip leaves a button.
+      // For browser input also test the actual hit, including an overlaid dialog.
+      return (
+        !e.isTrusted ||
+        controlOf(document.elementFromPoint(e.clientX, e.clientY)) === c.control
+      );
+    };
+    const queuePenFallback = (c: Contact) => {
+      if (
+        !c.trusted ||
+        !c.validPenUp ||
+        !(c.control instanceof HTMLButtonElement)
+      )
+        return;
+      const button = c.control;
+      const timer = setTimeout(() => {
+        fallbackTimers.delete(timer);
+        if (
+          contacts.get(c.id) !== c ||
+          c.activated ||
+          c.cancelled ||
+          !c.validPenUp ||
+          !button.isConnected ||
+          button.matches(":disabled") ||
+          !inside(button)
+        )
+          return;
+        // Native click gets the first opportunity. Only this verified contact
+        // can supply a missing UA click; its later compatibility click is deduped.
+        activating = c;
+        try {
+          button.click();
+        } finally {
+          activating = null;
+        }
+      }, 40);
+      c.fallbackTimer = timer;
+      fallbackTimers.add(timer);
     };
     const remember = (c: Contact) => {
       last = c;
@@ -102,10 +159,11 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
       let c = contacts.get(e.pointerId);
       if (e.type === "pointerdown") {
         if (!scoped || !(e.target instanceof Element)) return;
+        const control = controlOf(e.target);
         c = {
           id: e.pointerId,
           type: e.pointerType,
-          control: controlOf(e.target),
+          control,
           origin: e.target,
           x: e.clientX,
           y: e.clientY,
@@ -113,9 +171,13 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
           blocked: false,
           cancelled: false,
           ended: false,
+          trusted: e.isTrusted,
+          primary: e.button === 0 && !control?.matches(":disabled"),
+          activated: false,
         };
         contacts.set(e.pointerId, c);
         if (e.pointerType === "pen") {
+          lastPen = c;
           input.penDown(e.pointerId);
           for (const old of contacts.values())
             if (old.type === "touch" && !old.ended) old.blocked = true;
@@ -127,7 +189,7 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
           if (input.canPan(e.pointerId))
             pan.start(e.pointerId, e.clientX, e.clientY);
           else pan.cancel();
-          // Two fingers may be a native pinch, but neither is a number-button tap.
+          // Multiple fingers are neither scroll nor button taps in this scope.
           for (const old of contacts.values())
             if (
               old.type === "touch" &&
@@ -146,8 +208,19 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
         ) {
           c.ended = true;
           c.cancelled = e.type !== "pointerup";
+          if (e.type === "pointerup") {
+            c.validPenUp = !!(
+              c.primary &&
+              !c.moved &&
+              !c.cancelled &&
+              endsOnControl(c, e)
+            );
+            // A paper stroke has no starting control and is never an activation.
+            if (c.control && !c.validPenUp) c.cancelled = true;
+          }
           input.penUp(e.pointerId);
           remember(c);
+          if (c.validPenUp) queuePenFallback(c);
         }
         return;
       }
@@ -208,6 +281,10 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
             ended: false,
           };
           nativeContacts.set(t.identifier, c);
+          const valid = [...nativeContacts.values()].filter(
+            (old) => !old.blocked && !old.ended,
+          );
+          if (valid.length > 1) for (const old of valid) old.blocked = true;
         }
         if (!c) continue;
         c.blocked ||= input.penActive;
@@ -238,6 +315,20 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
         pointerId?: number;
         sourceCapabilities?: { firesTouchEvents?: boolean };
       };
+      if (activating) {
+        const c = activating;
+        if (
+          !c.validPenUp ||
+          c.activated ||
+          c.cancelled ||
+          c.control !== controlOf(e.target)
+        ) {
+          stop(e);
+          return;
+        }
+        c.activated = true;
+        return;
+      }
       if (e.detail === 0 && !e.pointerType) return;
       const typed = e.pointerType;
       let c = e.pointerId !== undefined ? contacts.get(e.pointerId) : undefined;
@@ -245,6 +336,18 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
       // A real contact ID must have a matching down in this session. Fallback
       // applies only to legacy MouseEvent/default-ID compatibility clicks.
       const identified = e.pointerId !== undefined && e.pointerId > 0;
+      // A native palm may finish after pen-up and overwrite `last`. Keep the
+      // verified pen contact separate for metadata-poor compatibility clicks.
+      if (
+        !c &&
+        !identified &&
+        lastPen &&
+        (typed === "pen" ||
+          (!typed &&
+            !e.sourceCapabilities?.firesTouchEvents &&
+            (last === lastPen || last?.blocked || last?.cancelled)))
+      )
+        c = lastPen;
       if (!c && !identified && (!typed || typed === last?.type))
         c = last ?? undefined;
       const type =
@@ -264,12 +367,25 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
         stop(e);
         return;
       }
-      if (
-        type === "pen" &&
-        c &&
-        (c.cancelled || c.moved || c.control !== controlOf(e.target))
-      )
-        stop(e);
+      if (type === "pen") {
+        if (
+          !c ||
+          !c.ended ||
+          !c.validPenUp ||
+          c.activated ||
+          c.cancelled ||
+          c.moved ||
+          c.control !== controlOf(e.target)
+        ) {
+          stop(e);
+          return;
+        }
+        c.activated = true;
+        if (c.fallbackTimer) {
+          clearTimeout(c.fallbackTimer);
+          fallbackTimers.delete(c.fallbackTimer);
+        }
+      }
     };
     const mouse = (event: Event) => {
       if (!inside(event.target) || !(event.target instanceof Element)) return;
@@ -304,7 +420,14 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
         stop(e);
     };
     const reset = () => {
+      for (const timer of fallbackTimers) clearTimeout(timer);
+      fallbackTimers.clear();
       pan.cancel();
+      for (const c of contacts.values())
+        if (c.type === "pen" && !c.activated) {
+          c.validPenUp = false;
+          c.cancelled = true;
+        }
       for (const c of contacts.values())
         if (!c.ended) {
           c.cancelled = true;

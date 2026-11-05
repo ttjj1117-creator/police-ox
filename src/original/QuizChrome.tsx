@@ -13,7 +13,7 @@ export interface QuizChromeProps {
   total: number;
   answered: number;
   mode: "study" | "round" | "exam";
-  timeLabel?: string;
+  deadlineAt?: string | null;
   expired?: boolean;
   busy?: boolean;
   answerSheetOpen: boolean;
@@ -32,7 +32,7 @@ export function QuizChrome({
   total,
   answered,
   mode,
-  timeLabel,
+  deadlineAt,
   expired = false,
   busy = false,
   answerSheetOpen,
@@ -140,14 +140,7 @@ export function QuizChrome({
           </button>
         )}
         {mode === "exam" && (
-          <div
-            className={`quiz-reading-time${expired ? " expired" : ""}`}
-            role="timer"
-            aria-label="남은 시간"
-          >
-            <span>남은 시간</span>
-            <strong>{timeLabel ?? "—"}</strong>
-          </div>
+          <QuizCountdown deadlineAt={deadlineAt} expired={expired} />
         )}
         <button
           type="button"
@@ -190,6 +183,52 @@ export function QuizChrome({
         </div>
       </div>
     </header>
+  );
+}
+
+/** Only this small display updates with the clock; expiry is still enforced by
+ * OriginalApp against the saved absolute deadline, including focus recovery. */
+function QuizCountdown({
+  deadlineAt,
+  expired,
+}: {
+  deadlineAt?: string | null;
+  expired: boolean;
+}) {
+  const readSeconds = () =>
+    deadlineAt
+      ? Math.max(0, Math.ceil((Date.parse(deadlineAt) - Date.now()) / 1000))
+      : null;
+  const [seconds, setSeconds] = useState(readSeconds);
+  useEffect(() => {
+    const tick = () => setSeconds(readSeconds());
+    tick();
+    const timer = setInterval(tick, 500);
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", tick);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [deadlineAt]);
+  const label =
+    seconds === null
+      ? "—"
+      : Math.floor(seconds / 60)
+          .toString()
+          .padStart(2, "0") +
+        ":" +
+        (seconds % 60).toString().padStart(2, "0");
+  return (
+    <div
+      className={`quiz-reading-time${expired || seconds === 0 ? " expired" : ""}`}
+      role="timer"
+      aria-label="남은 시간"
+    >
+      <span>남은 시간</span>
+      <strong>{label}</strong>
+    </div>
   );
 }
 

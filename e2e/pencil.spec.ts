@@ -305,7 +305,7 @@ test("실제 펜 접촉 중 손은 번호·다음·메뉴·답안표·종료창�
   );
   const sheet = p.getByRole("dialog", { name: "답안표", exact: true }),
     jump = sheet.getByRole("button", {
-      name: "3번 문항으로 이동",
+      name: /^3번 문항으로 이동 ·/,
       exact: true,
     });
   await expect(sheet).toBeVisible();
