@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-test("이전 배포 버전에서 저장한 body/choice 획을 같은 배치에서 읽기 전용 복원하고 새 연속 좌표와 섞지 않는다", async ({
+test("기존 필기 DB는 읽거나 삭제하지 않고 이전 문제·답안을 보존한 채 새 임시 필기를 사용한다", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -51,33 +51,100 @@ test("이전 배포 버전에서 저장한 body/choice 획을 같은 배치에�
       ]),
     );
   }, fixture);
+  await page.addInitScript(() => {
+    (window as any).__inkOperations = [];
+    (window as any).__allowInkInspection = false;
+    const open = IDBFactory.prototype.open,
+      remove = IDBFactory.prototype.deleteDatabase;
+    IDBFactory.prototype.open = function (name, version) {
+      if (
+        name === "police-original-ink" &&
+        !(window as any).__allowInkInspection
+      ) {
+        (window as any).__inkOperations.push("open");
+        throw new DOMException("test ink read denied", "SecurityError");
+      }
+      return version === undefined
+        ? open.call(this, name)
+        : open.call(this, name, version);
+    };
+    IDBFactory.prototype.deleteDatabase = function (name) {
+      if (name === "police-original-ink") {
+        (window as any).__inkOperations.push("delete");
+        throw Error("old ink must remain");
+      }
+      return remove.call(this, name);
+    };
+  });
   await page.reload();
+  const paper = page.locator('.ink-surface[data-ink-surface="paper"]');
+  await expect(paper).toHaveAttribute("data-ink-ready", "true");
+  await expect(paper.locator("g[data-ink-stroke]")).toHaveCount(0);
   await expect(
-    page.locator('.ink-surface[data-ink-surface="paper"]'),
-  ).toHaveAttribute("data-ink-ready", "true");
-  await expect(page.locator("g[data-ink-stroke]")).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "이전 필기 배치 보기", exact: true })
-    .click();
-  const old = Object.values<any>(fixture.documents[0].layouts).flatMap(
-    (h) => h.strokes,
+    page.getByRole("button", { name: "이전 필기 배치 보기", exact: true }),
+  ).toHaveCount(0);
+  const box = (await paper.boundingBox())!;
+  const e = {
+    pointerId: 71,
+    pointerType: "pen",
+    clientX: box.x + 110,
+    clientY: box.y + 25,
+    buttons: 1,
+    button: 0,
+    pressure: 0.5,
+    bubbles: true,
+  };
+  await paper.dispatchEvent("pointerdown", e);
+  await paper.dispatchEvent("pointerup", {
+    ...e,
+    clientX: e.clientX + 100,
+    buttons: 0,
+    pressure: 0,
+  });
+  await expect(paper.locator("g[data-ink-stroke]")).toHaveCount(1);
+  const inspect = () =>
+    page.evaluate(async () => {
+      (window as any).__allowInkInspection = true;
+      const get = (name: string, store: string, key?: string) =>
+        new Promise<any>((resolve, reject) => {
+          const r = indexedDB.open(name);
+          r.onerror = () => reject(r.error);
+          r.onsuccess = () => {
+            const db = r.result,
+              t = db.transaction(store),
+              s = t.objectStore(store),
+              q = key ? s.get(key) : s.getAll();
+            t.oncomplete = () => {
+              db.close();
+              resolve(q.result);
+            };
+            t.onerror = () => reject(t.error);
+          };
+        });
+      const ink = await get("police-original-ink", "documents");
+      const envelope = await get(
+        "police-ox-storage",
+        "states",
+        "original:demo",
+      );
+      (window as any).__allowInkInspection = false;
+      return {
+        ink,
+        state: envelope.state,
+        operations: (window as any).__inkOperations,
+      };
+    });
+  const after = await inspect();
+  expect(after.ink).toEqual(fixture.documents);
+  expect(after.state.data).toEqual(fixture.envelope.state.data);
+  expect(after.state.attempts).toEqual(fixture.envelope.state.attempts);
+  expect(after.state.sessions[0].responses).toEqual(
+    fixture.envelope.state.sessions[0].responses,
   );
-  await expect(page.locator("g[data-ink-stroke]")).toHaveCount(2);
-  for (const stroke of old) {
-    const actual = page.locator(`[data-ink-stroke="${stroke.id}"] path`);
-    await expect(actual).toHaveAttribute(
-      "d",
-      `M${stroke.points.map((p: any) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" L")}`,
-    );
-  }
-  await expect(page.getByText(/이전 필기 보관 보기 · 읽기 전용/)).toBeVisible();
-  await page
-    .getByRole("button", { name: "연속 필기로 돌아가기", exact: true })
-    .click();
-  await expect(page.locator("g[data-ink-stroke]")).toHaveCount(0);
+  expect(after.operations).toEqual([]);
   await page.reload();
-  await page
-    .getByRole("button", { name: "이전 필기 배치 보기", exact: true })
-    .click();
-  await expect(page.locator("g[data-ink-stroke]")).toHaveCount(2);
+  await expect(paper).toHaveAttribute("data-ink-ready", "true");
+  await expect(paper.locator("g[data-ink-stroke]")).toHaveCount(0);
+  expect((await inspect()).ink).toEqual(fixture.documents);
+  expect((await inspect()).operations).toEqual([]);
 });

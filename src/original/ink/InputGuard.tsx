@@ -203,11 +203,18 @@ export function QuizInputGuard({ children }: { children: ReactNode }) {
       if (!c || c.ended) return;
       distance(c, e.clientX, e.clientY);
       if (c.type === "pen") {
-        if (
-          ["pointerup", "pointercancel", "lostpointercapture"].includes(e.type)
-        ) {
+        if (e.type === "lostpointercapture") {
+          // A tool/navigation change may detach or release the captured paper
+          // while the tip still touches the screen. Cancel activation, but keep
+          // palms blocked until a physical up/cancel or the normal blur reset.
+          c.cancelled = true;
+          c.validPenUp = false;
+          remember(c);
+          return;
+        }
+        if (e.type === "pointerup" || e.type === "pointercancel") {
           c.ended = true;
-          c.cancelled = e.type !== "pointerup";
+          c.cancelled ||= e.type !== "pointerup";
           if (e.type === "pointerup") {
             c.validPenUp = !!(
               c.primary &&
