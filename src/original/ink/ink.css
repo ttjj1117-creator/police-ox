@@ -14,11 +14,8 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
   pointer-events: none;
-}
-.ink-layer[data-layout-pending="true"] {
-  visibility: hidden;
 }
 .original-app.is-quiz .original-choice-button.ink-choice-button {
   touch-action: none;
@@ -53,76 +50,12 @@
   background: #225c50;
   border-color: #225c50;
 }
-.ink-tool-state {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 12rem;
-  min-width: 0;
+.ink-temporary-note {
+  flex: 1 1 20rem;
+  margin: 0;
   color: #5c6e65;
   font-size: 12px;
   line-height: 1.5;
-}
-.ink-tool-state[data-error="true"] {
-  flex-basis: 100%;
-  order: 2;
-}
-.ink-tool-state [role="alert"] {
-  color: #9d3d28;
-}
-.ink-mode-hint {
-  color: #486957;
-}
-.original-app.is-quiz .ink-tool-state button {
-  align-self: flex-start;
-  font-size: 13px;
-}
-.original-app.is-quiz .ink-instructions {
-  flex: 0 0 auto;
-  position: relative;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.original-app.is-quiz .ink-instructions > summary {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 48px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  color: #456451;
-}
-.ink-instructions > summary:focus-visible {
-  outline: 2px solid #356744;
-  outline-offset: 2px;
-}
-.ink-instructions-panel {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 40;
-  width: min(28rem, calc(100vw - 64px));
-  padding: 12px;
-  border: 1px solid #cbdac1;
-  border-radius: 9px;
-  background: #fff;
-  box-shadow: 0 8px 24px #203d3826;
-  font-size: 14px;
-  line-height: 1.6;
-}
-.original-app.is-quiz .ink-instructions-panel p {
-  margin: 0 0 8px;
-}
-.original-app.is-quiz .ink-instructions-panel p:last-child {
-  margin-bottom: 0;
-}
-.original-app.is-quiz .ink-layout-notice {
-  margin: 4px 0 2px;
-  color: #856123;
-  font-size: 13px;
 }
 
 /* Prepared before contact: one-finger movement is routed explicitly. Native

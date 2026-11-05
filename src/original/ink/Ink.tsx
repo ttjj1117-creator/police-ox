@@ -16,8 +16,6 @@ import {
   choicePointerAllowed,
   InkInputCoordinator,
   editInk,
-  emptyInkDocument,
-  emptyInkHistory,
   eraseInk,
   inkIdentityKey,
   inkWidth,
@@ -25,37 +23,26 @@ import {
   localInkPoint,
   redoInk,
   undoInk,
-  validInkDocument,
-  type InkDocument,
   type InkHistory,
   type InkIdentity,
   type InkMode,
   type InkPoint,
   type InkStroke,
 } from "./model";
-import { InkRecoveryError, inkStore, type InkPersistence } from "./store";
+import { type InkSessionMemory } from "./memory";
 import "./ink.css";
 import { useQuizInput } from "./InputGuard";
 
-type Measure = () => unknown;
 interface InkContextValue {
+  identityKey: string;
   mode: InkMode;
   setMode: (mode: InkMode) => void;
-  ready: boolean;
   drawing: boolean;
   claim: (token: string) => boolean;
   release: (token: string) => void;
-  layoutKey: string;
   history: InkHistory;
-  register: (id: string, measure: Measure) => () => void;
-  measure: () => void;
-  commit: (key: string, transform: (history: InkHistory) => InkHistory) => void;
-  otherLayouts: boolean;
-  legacyAvailable: boolean;
-  status: string;
-  error: boolean;
-  retry: () => void;
-  flush: () => Promise<boolean>;
+  commit: (transform: (history: InkHistory) => InkHistory) => void;
+  finishPending: () => void;
   registerFinish: (finish: () => void) => () => void;
   input: InkInputCoordinator;
 }
@@ -69,168 +56,41 @@ export const useInkMode = (): InkMode => useContext(InkContext)?.mode ?? "pen";
 
 export interface InkProviderProps extends InkIdentity {
   children: ReactNode;
-  store?: InkPersistence;
+  memory: InkSessionMemory;
 }
-/** Remount at owner/session/question boundaries; the key check also prevents a stale render if a caller forgets. */
+/** The app owns memory across question/provider remounts, never across a page restart. */
 export function InkProvider({
   children,
-  store = inkStore,
+  memory,
   ...identity
 }: InkProviderProps) {
   const identityKey = inkIdentityKey(identity);
-  const identityRef = useRef(identity);
-  identityRef.current = identity;
-  const live = useRef<{ key: string; document: InkDocument }>({
-    key: "",
-    document: emptyInkDocument(identity),
-  });
-  const [revision, setRevision] = useState(0);
+  const entry = useMemo(() => memory.capture(identity), [memory, identityKey]);
+  const [, setRevision] = useState(0);
   const policy = useQuizInput();
   const [fallbackMode, setFallbackMode] = useState<InkMode>("pen");
-  const mode = policy?.mode ?? fallbackMode,
-    setMode = policy?.setMode ?? setFallbackMode;
+  const mode = policy?.mode ?? fallbackMode;
+  const setMode = policy?.setMode ?? setFallbackMode;
   const finishers = useRef(new Set<() => void>());
-  const saving = useRef<Promise<void> | null>(null);
-  const [layout, setLayout] = useState({ identityKey: "", key: "" });
-  const [loadError, setLoadError] = useState(false);
-  const [saveState, setSaveState] = useState<
-    "idle" | "saving" | "saved" | "error"
-  >("idle");
-  const [loadAttempt, setLoadAttempt] = useState(0);
   const [drawing, setDrawing] = useState(false);
   const active = useRef<string | null>(null);
   const fallbackInput = useRef(new InkInputCoordinator());
   const input = policy?.input ?? fallbackInput.current;
   const mounted = useRef(true);
-  const surfaces = useRef(new Map<string, Measure>());
-  const layoutFrame = useRef(0);
-  const saveSequence = useRef(0);
-  const ready = live.current.key === identityKey;
-  const layoutKey = layout.identityKey === identityKey ? layout.key : "";
-  const history =
-    ready && layoutKey
-      ? (live.current.document.layouts[layoutKey] ?? emptyInkHistory())
-      : emptyInkHistory();
-
-  const measure = useCallback(() => {
-    cancelAnimationFrame(layoutFrame.current);
-    layoutFrame.current = requestAnimationFrame(() => {
-      if (!mounted.current) return;
-      const measurements = [...surfaces.current]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([id, read]) => [id, read()]);
-      // Exact layout signatures, rather than scaled coordinates or a collision-prone hash.
-      const key =
-        measurements.length && measurements.every(([, value]) => value !== null)
-          ? JSON.stringify(measurements)
-          : "";
-      setLayout((previous) =>
-        previous.identityKey === identityKey && previous.key === key
-          ? previous
-          : { identityKey, key },
-      );
-    });
-  }, [identityKey]);
-
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      cancelAnimationFrame(layoutFrame.current);
     };
   }, []);
-  useEffect(() => {
-    let current = true;
-    live.current = { key: "", document: emptyInkDocument(identityRef.current) };
-    setLoadError(false);
-    setSaveState("idle");
-
-    setDrawing(false);
-    active.current = null;
-    void store
-      .read(identityRef.current)
-      .then((document) => {
-        if (!current) return;
-        live.current = {
-          key: identityKey,
-          document: document ?? emptyInkDocument(identityRef.current),
-        };
-        setRevision((n) => n + 1);
-        measure();
-      })
-      .catch((error: unknown) => {
-        if (!current) return;
-        if (
-          error instanceof InkRecoveryError &&
-          validInkDocument(error.document, identityRef.current)
-        ) {
-          live.current = { key: identityKey, document: error.document };
-          setSaveState("error");
-          setRevision((n) => n + 1);
-          measure();
-        } else setLoadError(true);
-      });
-    return () => {
-      current = false;
-    };
-  }, [identityKey, store, loadAttempt, measure]);
-
-  const persist = useCallback(
-    (document: InkDocument) => {
-      const capturedKey = inkIdentityKey(document.identity);
-      const sequence = ++saveSequence.current;
-      if (mounted.current) setSaveState("saving");
-      // The store registers every pending commit synchronously across provider remounts.
-      const pending = store.write(document);
-      saving.current = pending;
-      void pending
-        .then(() => {
-          if (
-            mounted.current &&
-            live.current.key === capturedKey &&
-            saveSequence.current === sequence
-          )
-            setSaveState("saved");
-        })
-        .catch(() => {
-          if (
-            mounted.current &&
-            live.current.key === capturedKey &&
-            saveSequence.current === sequence
-          )
-            setSaveState("error");
-        });
-    },
-    [store],
-  );
   const commit = useCallback(
-    (key: string, transform: (value: InkHistory) => InkHistory) => {
-      // Key and identity are captured at pointerdown. Navigation can never write to the next question.
-      if (!key || live.current.key !== identityKey) return;
-      const document = live.current.document;
-      const before = document.layouts[key] ?? emptyInkHistory();
-      const after = transform(before);
-      if (after === before) return;
-      const next = {
-        ...document,
-        layouts: { ...document.layouts, [key]: after },
-      };
-      live.current = { key: identityKey, document: next };
-      if (mounted.current) setRevision((n) => n + 1);
-      persist(next);
+    (transform: (value: InkHistory) => InkHistory) => {
+      const before = entry.history;
+      const after = entry.update(transform);
+      if (mounted.current && after !== before)
+        setRevision((revision) => revision + 1);
     },
-    [identityKey, persist],
-  );
-  const register = useCallback(
-    (id: string, read: Measure) => {
-      surfaces.current.set(id, read);
-      measure();
-      return () => {
-        if (surfaces.current.get(id) === read) surfaces.current.delete(id);
-        measure();
-      };
-    },
-    [measure],
+    [entry],
   );
   const claim = useCallback((token: string) => {
     if (active.current) return false;
@@ -243,110 +103,54 @@ export function InkProvider({
     active.current = null;
     if (mounted.current) setDrawing(false);
   }, []);
-  const retry = useCallback(() => {
-    if (live.current.key !== identityKey) setLoadAttempt((n) => n + 1);
-    else persist(live.current.document);
-  }, [identityKey, persist]);
   const registerFinish = useCallback((finish: () => void) => {
     finishers.current.add(finish);
     return () => {
       finishers.current.delete(finish);
     };
   }, []);
-  const flush = useCallback(async () => {
-    for (const finish of finishers.current) finish();
-    if (live.current.key !== identityKey) return false;
-    try {
-      await saving.current;
-      return true;
-    } catch {
-      return false;
-    }
-  }, [identityKey]);
+  const finishPending = useCallback(() => {
+    for (const finish of [...finishers.current]) finish();
+  }, []);
   const context = useMemo<InkContextValue>(
     () => ({
+      identityKey,
       mode,
-      flush,
+      setMode,
+      drawing,
+      claim,
+      release,
+      history: entry.history,
+      commit,
+      finishPending,
       registerFinish,
       input,
-      setMode,
-      ready,
-      drawing,
-      claim,
-      release,
-      layoutKey,
-      history,
-      register,
-      measure,
-      commit,
-      otherLayouts:
-        ready &&
-        Object.entries(live.current.document.layouts).some(
-          ([key, value]) => key !== layoutKey && value.strokes.length > 0,
-        ),
-      legacyAvailable:
-        ready &&
-        Object.values(live.current.document.layouts).some((h) =>
-          [h.strokes, ...h.undo, ...h.redo].some((strokes) =>
-            strokes.some((s) => s.surfaceId !== "paper"),
-          ),
-        ),
-      status: loadError
-        ? "필기를 불러오지 못했습니다. 기존 필기는 보존됩니다."
-        : !ready
-          ? "필기 불러오는 중…"
-          : saveState === "saving"
-            ? "필기 저장 중…"
-            : saveState === "saved"
-              ? "필기 이 기기에 저장됨"
-              : saveState === "error"
-                ? "필기를 저장하지 못했습니다. 현재 앱에서만 임시 보관합니다. 닫기 전에 다시 시도하세요."
-                : "필기 · 이 기기에 저장",
-      error: loadError || saveState === "error",
-      retry,
-      // revision only updates this small question context after load, stroke or toolbar actions.
     }),
     [
+      identityKey,
       mode,
-      ready,
+      setMode,
       drawing,
       claim,
       release,
-      layoutKey,
-      layout,
-      history,
-      register,
-      measure,
+      entry.history,
       commit,
-      loadError,
-      saveState,
-      retry,
-      revision,
-      flush,
+      finishPending,
       registerFinish,
-      setMode,
       input,
     ],
   );
   return <InkContext.Provider value={context}>{children}</InkContext.Provider>;
 }
 
-export function InkToolbar({
-  legacy = false,
-  onToggleLegacy,
-}: {
-  legacy?: boolean;
-  onToggleLegacy?: () => void;
-}) {
+export function InkToolbar() {
   const ink = useInk();
-  const disabled = !ink.ready || !ink.layoutKey || ink.drawing || legacy;
   return (
     <section className="ink-tools" aria-label="문항 필기">
       <div className="ink-tool-row">
         <div className="ink-tool-buttons" role="group" aria-label="필기 도구">
           <button
             type="button"
-            disabled={!ink.ready || legacy}
             aria-pressed={ink.mode === "pen"}
             onClick={() => ink.setMode("pen")}
           >
@@ -354,7 +158,6 @@ export function InkToolbar({
           </button>
           <button
             type="button"
-            disabled={!ink.ready || legacy}
             aria-pressed={ink.mode === "eraser"}
             onClick={() => ink.setMode("eraser")}
           >
@@ -362,155 +165,45 @@ export function InkToolbar({
           </button>
           <button
             type="button"
-            disabled={disabled || !ink.history.undo.length}
-            onClick={() => ink.commit(ink.layoutKey, undoInk)}
+            disabled={ink.drawing || !ink.history.undo.length}
+            onClick={() => ink.commit(undoInk)}
             aria-label="필기 실행 취소"
           >
             실행 취소
           </button>
           <button
             type="button"
-            disabled={disabled || !ink.history.redo.length}
-            onClick={() => ink.commit(ink.layoutKey, redoInk)}
+            disabled={ink.drawing || !ink.history.redo.length}
+            onClick={() => ink.commit(redoInk)}
             aria-label="필기 다시 실행"
           >
             다시 실행
           </button>
           <button
             type="button"
-            disabled={disabled || !ink.history.strokes.length}
-            onClick={() => ink.commit(ink.layoutKey, (h) => editInk(h, []))}
+            disabled={ink.drawing || !ink.history.strokes.length}
+            onClick={() => ink.commit((history) => editInk(history, []))}
           >
             현재 문항 필기 지우기
           </button>
         </div>
-        {onToggleLegacy && (legacy || ink.legacyAvailable) && (
-          <button type="button" onClick={onToggleLegacy}>
-            {legacy ? "연속 필기로 돌아가기" : "이전 필기 배치 보기"}
-          </button>
-        )}
-        <div
-          className="ink-tool-state"
-          data-error={ink.error ? "true" : "false"}
-        >
-          <span role={ink.error ? "alert" : "status"}>{ink.status}</span>
-          <span className="ink-mode-hint">
-            펜으로 필기 · 손가락으로 이동 · 필기 중 손 입력 무시
-          </span>
-          {legacy && (
-            <span>
-              이전 필기 보관 보기 · 읽기 전용. 같은 화면 폭·글씨·줄바꿈에서
-              복원합니다.
-            </span>
-          )}
-          {ink.error && (
-            <button type="button" onClick={ink.retry}>
-              필기 저장 다시 시도
-            </button>
-          )}
-        </div>
-        <details
-          className="ink-instructions"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.currentTarget.open = false;
-              event.currentTarget.querySelector("summary")?.focus();
-            }
-          }}
-        >
-          <summary>
-            필기 안내 <span aria-hidden="true">▾</span>
-          </summary>
-          <div className="ink-instructions-panel">
-            <p>
-              펜으로 바로 쓰고 손가락으로 이동합니다. 지우개를 선택해도 손가락은
-              이동에 사용합니다. 실제 펜 접촉 중의 손 입력은 무시하며 펜을 뗀 뒤
-              새 손가락 조작을 바로 사용할 수 있습니다.
-            </p>
-            <p>
-              필기는 이 기기에 저장합니다. 일반 백업·기기 동기화에는 포함되지
-              않습니다.
-            </p>
-            <p>
-              글씨 크기나 화면 배치가 바뀌면 기존 필기는 별도로 보관하며, 원래
-              배치로 돌아오면 다시 표시합니다.
-            </p>
-          </div>
-        </details>
-      </div>
-      {ink.otherLayouts && (
-        <p className="ink-layout-notice" role="status">
-          다른 글씨 크기·화면 배치의 필기가 보관되어 있습니다.
+        <p className="ink-temporary-note">
+          필기는 현재 학습 중에만 유지됩니다. 새로고침하거나 학습을 종료하면
+          사라집니다.
         </p>
-      )}
+      </div>
     </section>
   );
 }
 
-const rounded = (value: number) => Math.round(value * 10) / 10;
-function layoutMeasurement(element: HTMLElement): unknown {
-  const rect = element.getBoundingClientRect();
-  if (
-    rect.width <= 0 ||
-    rect.height <= 0 ||
-    document.fonts?.status === "loading"
-  )
-    return null;
-  const nodes = [
-    element,
-    ...element.querySelectorAll<HTMLElement>(
-      ".original-content,.original-statements p,img,table",
-    ),
-  ];
-  return nodes.map((node) => {
-    const box = node.getBoundingClientRect(),
-      style = getComputedStyle(node);
-    const fragments: number[][] = [];
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    // A font swap can change line breaks even when the outside box stays equal.
-    // Store fragment geometry, never the base64 contents of image sources.
-    while (walker.nextNode()) {
-      const text = walker.currentNode;
-      if (!text.textContent?.trim()) continue;
-      const range = document.createRange();
-      range.selectNodeContents(text);
-      for (const part of range.getClientRects())
-        fragments.push([
-          rounded(part.left - rect.left),
-          rounded(part.top - rect.top),
-          rounded(part.width),
-          rounded(part.height),
-        ]);
-    }
-    return {
-      width: rounded(box.width),
-      height: rounded(box.height),
-      x: rounded(box.left - rect.left),
-      y: rounded(box.top - rect.top),
-      font: style.fontFamily,
-      size: style.fontSize,
-      weight: style.fontWeight,
-      line: style.lineHeight,
-      spacing: style.letterSpacing,
-      whiteSpace: style.whiteSpace,
-      wordBreak: style.wordBreak,
-      text: node.textContent,
-      fragments,
-      image:
-        node instanceof HTMLImageElement
-          ? [node.alt, node.naturalWidth, node.naturalHeight]
-          : undefined,
-    };
-  });
-}
 const strokePath = (points: InkPoint[]) =>
   points.length
-    ? `M${points.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" L")}${points.length === 1 ? " l0.01 0.01" : ""}`
+    ? `M${points.map((point) => `${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" L")}${points.length === 1 ? " l0.01 0.01" : ""}`
     : "";
 const strokePressure = (points: InkPoint[]) =>
-  points.reduce((sum, p) => sum + p.pressure, 0) / Math.max(1, points.length);
-// A committed stroke is immutable. Saving, timer and tool updates need not
-// rebuild its path or rescan every pressure sample.
+  points.reduce((sum, point) => sum + point.pressure, 0) /
+  Math.max(1, points.length);
+/** Committed strokes are immutable, so unrelated tool updates reuse their drawing. */
 const CompletedInkStroke = memo(function CompletedInkStroke({
   stroke,
   hidden,
@@ -544,108 +237,27 @@ interface Gesture {
   pointerId: number;
   token: string;
   mode: "pen" | "eraser";
-  layoutKey: string;
   points: InkPoint[];
   strokes: InkStroke[];
   base: InkStroke[];
+  commit: InkContextValue["commit"];
+  release: InkContextValue["release"];
+  input: InkInputCoordinator;
 }
 export function InkSurface({
   surfaceId,
   children,
-  readOnly = false,
 }: {
   surfaceId: string;
   children: ReactNode;
-  readOnly?: boolean;
 }) {
   const ink = useInk();
   const host = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const layer = useRef<SVGSVGElement>(null);
   const draft = useRef<SVGPathElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const frame = useRef(0);
-  const geometryFrame = useRef(0);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const lastGeometry = useRef("");
-  const committedLayout = useRef({ key: "", signature: "" });
-  const layoutSignature = useMemo(() => {
-    if (!ink.layoutKey) return "";
-    try {
-      const measured = (JSON.parse(ink.layoutKey) as [string, unknown][]).find(
-        ([id]) => id === surfaceId,
-      );
-      return measured ? JSON.stringify(measured[1]) : "";
-    } catch {
-      return "";
-    }
-  }, [ink.layoutKey, surfaceId]);
-  const geometry = useRef<{
-    dirty: boolean;
-    value: unknown;
-    signature: string;
-  }>({
-    dirty: true,
-    value: null,
-    signature: "null",
-  });
-  const finishRef = useRef<() => void>(() => {});
-  const latest = useRef(ink);
-  latest.current = ink;
-  const readGeometry = useCallback(() => {
-    if (geometry.current.dirty && content.current) {
-      const value = layoutMeasurement(content.current);
-      geometry.current = {
-        dirty: false,
-        value,
-        signature: JSON.stringify(value),
-      };
-    }
-    return geometry.current;
-  }, []);
-  const checkGeometry = useCallback(() => {
-    if (!content.current) return;
-    const next = readGeometry();
-    if (next.signature !== lastGeometry.current) {
-      // Finish in the geometry captured at down, before any more samples can be
-      // mixed into a newly reflowed paper. No empty replacement is persisted.
-      finishRef.current();
-      // Hide synchronously before a resize/font reflow paints old coordinates.
-      layer.current?.setAttribute("data-layout-pending", "true");
-      latest.current.measure();
-    } else if (
-      next.value !== null &&
-      committedLayout.current.key &&
-      committedLayout.current.key === latest.current.layoutKey &&
-      committedLayout.current.signature === next.signature
-    ) {
-      layer.current?.removeAttribute("data-layout-pending");
-    }
-  }, [readGeometry]);
-  const invalidateGeometry = useCallback(() => {
-    geometry.current.dirty = true;
-    // Resize, font and DOM notifications for one reflow share one exact read.
-    cancelAnimationFrame(geometryFrame.current);
-    geometryFrame.current = requestAnimationFrame(checkGeometry);
-  }, [checkGeometry]);
-  useLayoutEffect(() => {
-    // A provider read precedes its React commit. Tie visible/input coordinates
-    // to the exact key that actually committed, not merely its latest read.
-    committedLayout.current = {
-      key: ink.layoutKey,
-      signature: layoutSignature,
-    };
-    // The registered provider read and this readiness check share the cached
-    // signature. Unrelated React renders perform no DOM/Range layout walk.
-    const current = readGeometry();
-    if (
-      current.value !== null &&
-      current.signature === layoutSignature &&
-      ink.layoutKey
-    )
-      layer.current?.removeAttribute("data-layout-pending");
-  }, [ink.layoutKey, ink.ready, layoutSignature, readGeometry]);
-
   const paint = useCallback(() => {
     cancelAnimationFrame(frame.current);
     frame.current = requestAnimationFrame(() => {
@@ -673,7 +285,7 @@ export function InkSurface({
     const current = gesture.current;
     if (!current) return;
     gesture.current = null;
-    latest.current.input.markInkGesture();
+    current.input.markInkGesture();
     cancelAnimationFrame(frame.current);
     draft.current?.setAttribute("d", "");
     setHidden(new Set());
@@ -683,7 +295,7 @@ export function InkSurface({
         surfaceId,
         points: current.points,
       };
-      latest.current.commit(current.layoutKey, (history) =>
+      current.commit((history) =>
         editInk(history, [...history.strokes, stroke]),
       );
     } else if (current.mode === "eraser" && current.strokes !== current.base) {
@@ -695,100 +307,23 @@ export function InkSurface({
           )
           .map((stroke) => stroke.id),
       );
-      latest.current.commit(current.layoutKey, (history) =>
+      current.commit((history) =>
         editInk(
           history,
           history.strokes.filter((stroke) => !removed.has(stroke.id)),
         ),
       );
     }
-    latest.current.release(current.token);
-    try {
-      if (host.current?.hasPointerCapture(current.pointerId))
-        host.current.releasePointerCapture(current.pointerId);
-    } catch {
-      /* cancelled or detached pointer */
-    }
+    current.release(current.token);
+    // Completing a memory stroke (tool/navigation/exit) is not a physical
+    // pen-up. Keep its contact/capture until the real up/cancel; the session
+    // input guard owns physical release and still blocks palms in between.
   }, [surfaceId]);
-  finishRef.current = finish;
-
-  useEffect(() => {
-    const element = content.current;
-    if (!element) return;
-    const unregister = ink.register(surfaceId, () => {
-      const measured = readGeometry();
-      lastGeometry.current = measured.signature;
-      return measured.value;
-    });
-    const observer = new ResizeObserver(() => {
-      // ResizeObserver runs just before paint. Waiting for another animation
-      // frame can display old coordinates over the resized paper for a frame.
-      geometry.current.dirty = true;
-      cancelAnimationFrame(geometryFrame.current);
-      checkGeometry();
-    });
-    observer.observe(element);
-    const mutations = new MutationObserver(invalidateGeometry);
-    mutations.observe(element, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: [
-        "class",
-        "style",
-        "src",
-        "width",
-        "height",
-        "hidden",
-        "data-reading-flow",
-        "data-reading-segment",
-      ],
-    });
-    // Font scale and responsive classes live outside the paper. Observe only
-    // their own layout-affecting attributes, not sibling toolbar/SVG updates.
-    for (let node = element.parentElement; node; node = node.parentElement)
-      mutations.observe(node, {
-        attributes: true,
-        attributeFilter: ["class", "style", "hidden"],
-      });
-    element.addEventListener("load", invalidateGeometry, true);
-    window.addEventListener("resize", invalidateGeometry);
-    window.visualViewport?.addEventListener("resize", invalidateGeometry);
-    document.fonts?.addEventListener("loading", invalidateGeometry);
-    document.fonts?.addEventListener("loadingdone", invalidateGeometry);
-    document.fonts?.addEventListener("loadingerror", invalidateGeometry);
-    let active = true;
-    void document.fonts?.ready.then(() => {
-      if (active) invalidateGeometry();
-    });
-    invalidateGeometry();
-    return () => {
-      active = false;
-      finish();
-      unregister();
-      observer.disconnect();
-      mutations.disconnect();
-      element.removeEventListener("load", invalidateGeometry, true);
-      window.removeEventListener("resize", invalidateGeometry);
-      window.visualViewport?.removeEventListener("resize", invalidateGeometry);
-      document.fonts?.removeEventListener("loading", invalidateGeometry);
-      document.fonts?.removeEventListener("loadingdone", invalidateGeometry);
-      document.fonts?.removeEventListener("loadingerror", invalidateGeometry);
-      cancelAnimationFrame(frame.current);
-      cancelAnimationFrame(geometryFrame.current);
-    };
-  }, [
-    surfaceId,
-    ink.register,
-    finish,
-    invalidateGeometry,
-    readGeometry,
-    checkGeometry,
-  ]);
-  useEffect(() => {
+  // Finish the previous target with the callback captured at pointerdown. A
+  // provider identity change can never put its final point into the new target.
+  useLayoutEffect(() => {
     finish();
-  }, [ink.layoutKey, ink.mode, finish]);
+  }, [ink.identityKey, ink.mode, finish]);
   useEffect(() => {
     const hide = () => {
       if (document.visibilityState === "hidden") finish();
@@ -797,14 +332,15 @@ export function InkSurface({
     window.addEventListener("pagehide", finish);
     document.addEventListener("visibilitychange", hide);
     return () => {
+      finish();
       window.removeEventListener("blur", finish);
       window.removeEventListener("pagehide", finish);
       document.removeEventListener("visibilitychange", hide);
+      cancelAnimationFrame(frame.current);
     };
   }, [finish]);
-
+  useEffect(() => ink.registerFinish(finish), [ink.registerFinish, finish]);
   const append = (event: PointerEvent) => {
-    if (geometry.current.dirty) checkGeometry();
     const current = gesture.current,
       element = content.current;
     if (!current || current.pointerId !== event.pointerId || !element) return;
@@ -837,8 +373,7 @@ export function InkSurface({
     paint();
   };
   const down = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === "touch") return;
-    if (!isDrawingPointer(event.pointerType) || readOnly) return;
+    if (!isDrawingPointer(event.pointerType)) return;
     if (
       event.target instanceof Element &&
       event.target.closest("button,a,input,select,textarea,summary")
@@ -846,37 +381,21 @@ export function InkSurface({
       return;
     event.stopPropagation();
     event.preventDefault();
-    if (
-      !isDrawingPointer(event.pointerType) ||
-      !ink.ready ||
-      !ink.layoutKey ||
-      gesture.current ||
-      !content.current
-    )
-      return;
-    // Observers mark invalidation immediately, even before the next animation
-    // frame installs the matching saved layout. Never draw into a stale key.
-    checkGeometry();
-    if (
-      geometry.current.value === null ||
-      geometry.current.signature !== lastGeometry.current ||
-      committedLayout.current.key !== ink.layoutKey ||
-      geometry.current.signature !== committedLayout.current.signature ||
-      layer.current?.getAttribute("data-layout-pending") === "true"
-    )
-      return;
-    ink.input.penDown(event.pointerId);
+    if (gesture.current || !content.current) return;
     const token = `${surfaceId}:${event.pointerId}`;
     if (!ink.claim(token)) return;
+    ink.input.penDown(event.pointerId);
     const first = localInkPoint(event, content.current.getBoundingClientRect());
     gesture.current = {
       pointerId: event.pointerId,
       token,
       mode: ink.mode,
-      layoutKey: ink.layoutKey,
       points: [first],
       strokes: ink.history.strokes,
       base: ink.history.strokes,
+      commit: ink.commit,
+      release: ink.release,
+      input: ink.input,
     };
     if (ink.mode === "eraser")
       gesture.current.strokes = eraseInk(
@@ -888,11 +407,10 @@ export function InkSurface({
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
-      /* synthetic/unsupported capture; leaving ends the stroke */
+      /* unsupported capture */
     }
     paint();
   };
-  useEffect(() => ink.registerFinish(finish), [ink.registerFinish, finish]);
   const strokes = useMemo(
     () =>
       ink.history.strokes.filter((stroke) => stroke.surfaceId === surfaceId),
@@ -904,42 +422,35 @@ export function InkSurface({
       className="ink-surface"
       data-ink-surface={surfaceId}
       data-ink-mode={ink.mode}
-      data-ink-ready={ink.ready && !!ink.layoutKey ? "true" : "false"}
+      data-ink-ready="true"
       onPointerDown={down}
       onPointerMove={(event) => {
-        if (event.pointerType === "touch") return;
-        if (gesture.current?.pointerId === event.pointerId) {
-          event.preventDefault();
-          event.stopPropagation();
-          if (event.buttons === 0 && event.pressure === 0) finish();
-          else append(event.nativeEvent);
-        }
+        if (gesture.current?.pointerId !== event.pointerId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.buttons === 0 && event.pressure === 0) finish();
+        else append(event.nativeEvent);
       }}
       onPointerUp={(event) => {
-        if (event.pointerType === "touch") return;
-        if (gesture.current?.pointerId === event.pointerId) {
-          event.preventDefault();
-          event.stopPropagation();
-          append(event.nativeEvent);
-          finish();
-        }
+        if (gesture.current?.pointerId !== event.pointerId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        append(event.nativeEvent);
+        finish();
       }}
       onPointerCancel={(event) => {
         if (event.pointerType === "pen") ink.input.penUp(event.pointerId);
         if (gesture.current?.pointerId === event.pointerId) finish();
       }}
       onLostPointerCapture={(event) => {
-        if (event.pointerType === "pen") ink.input.penUp(event.pointerId);
         if (gesture.current?.pointerId === event.pointerId) finish();
       }}
       onPointerLeave={(event) => {
         const captured =
           typeof event.currentTarget.hasPointerCapture === "function" &&
           event.currentTarget.hasPointerCapture(event.pointerId);
-        if (gesture.current?.pointerId === event.pointerId && !captured) {
-          ink.input.penUp(event.pointerId);
+        if (gesture.current?.pointerId === event.pointerId && !captured)
           finish();
-        }
       }}
       onClick={(event) => {
         if (
@@ -954,7 +465,7 @@ export function InkSurface({
       <div className="ink-content" ref={content}>
         {children}
       </div>
-      <svg ref={layer} className="ink-layer" aria-hidden="true">
+      <svg className="ink-layer" aria-hidden="true">
         {strokes.map((stroke) => (
           <CompletedInkStroke
             key={stroke.id}

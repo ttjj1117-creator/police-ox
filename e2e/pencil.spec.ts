@@ -2,28 +2,25 @@ import { test, expect, type Page, type Locator } from "@playwright/test";
 test.use({ viewport: { width: 1280, height: 800 }, hasTouch: true });
 const area = (p: Page) => p.locator('.ink-surface[data-ink-surface="paper"]'),
   marks = (p: Page) => area(p).locator("g[data-ink-stroke]");
-async function read(p: Page, ink = false) {
+async function read(p: Page) {
   return p.evaluate(
-    (ink) =>
+    () =>
       new Promise<any>((resolve, reject) => {
-        const r = indexedDB.open(
-          ink ? "police-original-ink" : "police-ox-storage",
-          1,
-        );
-        r.onerror = () => reject(r.error);
-        r.onsuccess = () => {
-          const d = r.result,
-            g = d
-              .transaction(ink ? "documents" : "states")
-              .objectStore(ink ? "documents" : "states");
-          const q = ink ? g.getAll() : g.get("original:demo");
-          q.onsuccess = () => {
-            resolve(ink ? q.result : q.result.state);
-            d.close();
+        const request = indexedDB.open("police-ox-storage", 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const get = db
+            .transaction("states")
+            .objectStore("states")
+            .get("original:demo");
+          get.onsuccess = () => {
+            db.close();
+            resolve(get.result.state);
           };
+          get.onerror = () => reject(get.error);
         };
       }),
-    ink,
   );
 }
 async function active(p: Page) {
@@ -105,7 +102,10 @@ async function draw(p: Page, id = 1, end = "pointerup", check = true) {
     await expect(
       p
         .locator(".ink-tools")
-        .getByText("필기 이 기기에 저장됨", { exact: true }),
+        .getByText(
+          "필기는 현재 학습 중에만 유지됩니다. 새로고침하거나 학습을 종료하면 사라집니다.",
+          { exact: true },
+        ),
     ).toBeVisible();
 }
 async function finish(p: Page, exam = true) {
@@ -239,12 +239,11 @@ test("연속 종이는 본문·빈 공간·선택지·번호 위를 한 획으�
   expect(
     Object.values((await active(p)).responses).filter((x) => x != null),
   ).toHaveLength(0);
-  const d = (await read(p, true))[0],
-    stroke = Object.values<any>(d.layouts).flatMap((x) => x.strokes)[0];
-  expect(stroke.surfaceId).toBe("paper");
-  expect(Math.max(...stroke.points.map((x: any) => x.y))).toBeGreaterThan(
-    b.height * 0.8,
-  );
+  const path = await marks(p).locator("path").getAttribute("d");
+  const coordinates = path!.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+  expect(
+    Math.max(...coordinates.filter((_, i) => i % 2 === 1)),
+  ).toBeGreaterThan(b.height * 0.8);
   await p.getByRole("button", { name: "필기 실행 취소", exact: true }).click();
   await expect(marks(p)).toHaveCount(0);
   await p.getByRole("button", { name: "필기 다시 실행", exact: true }).click();
@@ -371,7 +370,7 @@ test("첫 진입의 연필과 지우개 선택 상태 모두 손가락은 실제
     p.getByRole("button", { name: "지우개", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
 });
-test("문항 간 자동 입력·취소 획·빠른 왕복·새로고침에서 필기와 답안·마감 시각을 보존한다", async ({
+test("문항 간 자동 입력·취소 획·빠른 왕복은 임시 필기를 유지하고 새로고침은 답안·마감 시각만 복원한다", async ({
   page: p,
 }) => {
   await begin(p);
@@ -387,32 +386,36 @@ test("문항 간 자동 입력·취소 획·빠른 왕복·새로고침에서 �
   await draw(p, 5, "lostpointercapture");
   await p.getByRole("button", { name: "이전 문항", exact: true }).click();
   await expect(marks(p)).toHaveCount(1);
+  const savedResponses = (await active(p)).responses;
   await p.reload();
-  await expect(marks(p)).toHaveCount(1);
+  await expect(marks(p)).toHaveCount(0);
+  expect((await active(p)).responses).toEqual(savedResponses);
   await expect(
     p.getByRole("button", { name: "연필", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   expect((await active(p)).deadlineAt).toBe(s.deadlineAt);
-  expect(
-    new Set((await read(p, true)).map((d: any) => d.identity.questionId)).size,
-  ).toBe(2);
+  await p.getByRole("button", { name: "다음 문항", exact: true }).click();
+  await expect(marks(p)).toHaveCount(0);
 });
-test("서로 다른 글씨·폭 배치와 새 세션·real 영역의 획과 undo를 섞지 않는다", async ({
+test("글씨·폭·줄바꿈이 달라져도 같은 임시 획과 undo를 유지하고 새 세션·real 영역과 섞지 않는다", async ({
   page: p,
 }) => {
   await begin(p);
-  await p.getByRole("button", { name: "연필", exact: true }).click();
   await draw(p);
   const path = await marks(p).locator("path").getAttribute("d");
   await p.getByRole("button", { name: "글씨 키우기", exact: true }).click();
-  await expect(marks(p)).toHaveCount(0);
-  await draw(p, 2);
-  await p.getByRole("button", { name: "글씨 줄이기", exact: true }).click();
   await expect(marks(p).locator("path")).toHaveAttribute("d", path!);
-  await p.setViewportSize({ width: 960, height: 800 });
-  await expect(marks(p)).toHaveCount(0);
+  await draw(p, 2);
+  await expect(marks(p)).toHaveCount(2);
+  await p.getByRole("button", { name: "글씨 줄이기", exact: true }).click();
+  await expect(marks(p)).toHaveCount(2);
+  await p.setViewportSize({ width: 960, height: 650 });
+  await expect(marks(p)).toHaveCount(2);
+  await p.getByRole("button", { name: "필기 실행 취소", exact: true }).click();
+  await expect(marks(p).locator("path")).toHaveAttribute("d", path!);
   await p.setViewportSize({ width: 1280, height: 800 });
-  await expect(marks(p)).toHaveCount(1);
+  await p.getByRole("button", { name: "필기 다시 실행", exact: true }).click();
+  await expect(marks(p)).toHaveCount(2);
   await finish(p);
   await p.getByRole("button", { name: "모의고사", exact: true }).click();
   await p.getByRole("button", { name: "시작하기", exact: true }).click();
@@ -420,9 +423,6 @@ test("서로 다른 글씨·폭 배치와 새 세션·real 영역의 획과 undo
   await finish(p);
   await p.getByLabel("저장 영역", { exact: true }).selectOption("real");
   await expect(p.locator(".ink-layer")).toHaveCount(0);
-  expect(
-    (await read(p, true)).every((d: any) => d.identity.namespace === "demo"),
-  ).toBe(true);
 });
 test("좌측 일반 종료는 취소 기본 포커스이며 확인 전 기록 유지·중복 확정 한 번만 종료", async ({
   page: p,
@@ -474,46 +474,124 @@ test("종료 확인 중 타이머 만료는 창을 닫아 마지막 저장 답�
   await expect(p.getByRole("alertdialog")).toHaveCount(0);
   expect((await read(p)).attempts).toHaveLength(100);
 });
-test("필기 저장 실패는 거짓 완료·종료 없이 재시도하고 답안·타이머를 보존", async ({
+test("필기 DB가 차단되어도 접근 없이 필기·답안·시험 제출을 정상 처리한다", async ({
   page: p,
 }) => {
   await p.addInitScript(() => {
-    (window as any).__failInk = true;
-    const put = IDBObjectStore.prototype.put;
-    IDBObjectStore.prototype.put = function (v, k) {
-      if (
-        this.transaction.db.name === "police-original-ink" &&
-        (window as any).__failInk
-      )
-        throw new DOMException("test quota", "QuotaExceededError");
-      return k === undefined ? put.call(this, v) : put.call(this, v, k);
+    (window as any).__inkDBCalls = [];
+    const open = IDBFactory.prototype.open;
+    IDBFactory.prototype.open = function (name, version) {
+      if (name === "police-original-ink") {
+        (window as any).__inkDBCalls.push(name);
+        throw new DOMException("test denied ink only", "SecurityError");
+      }
+      return version === undefined
+        ? open.call(this, name)
+        : open.call(this, name, version);
     };
   });
   await begin(p);
   const before = await active(p);
-  await p.getByRole("button", { name: "연필", exact: true }).click();
-  await draw(p, 1, "pointerup", false);
-  await expect(p.locator(".ink-tools").getByRole("alert")).toContainText(
-    "저장하지 못했습니다",
-  );
+  await draw(p);
+  await expect(marks(p)).toHaveCount(1);
   await p.getByRole("button", { name: "1번 선택", exact: true }).click();
   await p.getByRole("button", { name: "시험 제출", exact: true }).click();
-  await p.getByRole("button", { name: "시험 제출 확정", exact: true }).click();
-  await expect(p.getByRole("alertdialog")).toBeVisible();
+  await expect(p.getByRole("alertdialog").getByText(/임시 필기/)).toBeVisible();
+  await expect(
+    p.getByRole("button", { name: "필기 저장 다시 시도", exact: true }),
+  ).toHaveCount(0);
   expect((await active(p)).deadlineAt).toBe(before.deadlineAt);
-  await p.evaluate(() => {
-    (window as any).__failInk = false;
-  });
-  await p
-    .getByRole("alertdialog")
-    .getByRole("button", { name: "필기 저장 다시 시도", exact: true })
-    .click();
   await p.getByRole("button", { name: "시험 제출 확정", exact: true }).click();
   await expect(
     p.getByRole("heading", { name: "학습 결과", exact: true }),
   ).toBeVisible();
-  expect(await read(p, true)).toHaveLength(1);
   expect((await read(p)).attempts).toHaveLength(100);
+  expect(await p.evaluate(() => (window as any).__inkDBCalls)).toEqual([]);
+});
+test("답안 저장 실패와 종료 취소는 임시 획을 유지하며 실제 저장 재시도 성공 후 종료한다", async ({
+  page: p,
+}) => {
+  await p.addInitScript(() => {
+    (window as any).__failStudy = false;
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (value, key) {
+      if (
+        this.transaction.db.name === "police-ox-storage" &&
+        (window as any).__failStudy
+      )
+        throw new DOMException("test answer quota", "QuotaExceededError");
+      return key === undefined
+        ? put.call(this, value)
+        : put.call(this, value, key);
+    };
+  });
+  await begin(p, false);
+  await draw(p);
+  const path = await marks(p).locator("path").getAttribute("d");
+  await p.getByRole("button", { name: "1번 선택", exact: true }).click();
+  await p.getByRole("button", { name: "답 제출", exact: true }).click();
+  const before = await read(p);
+  await p.getByRole("button", { name: "학습 종료", exact: true }).click();
+  await p.evaluate(() => ((window as any).__failStudy = true));
+  await p.getByRole("button", { name: "학습 종료 확정", exact: true }).click();
+  await expect(p.getByRole("alertdialog").getByRole("alert")).toContainText(
+    "학습 종료를 저장하지 못했습니다",
+  );
+  await expect(marks(p).locator("path")).toHaveAttribute("d", path!);
+  expect((await read(p)).sessions).toEqual(before.sessions);
+  expect((await read(p)).attempts).toEqual(before.attempts);
+  await p
+    .getByRole("button", { name: "취소 · 계속 풀기", exact: true })
+    .click();
+  await expect(marks(p).locator("path")).toHaveAttribute("d", path!);
+  await p.evaluate(() => ((window as any).__failStudy = false));
+  await p.getByRole("button", { name: "저장 재시도", exact: true }).click();
+  await expect(
+    p.getByRole("heading", { name: "학습 결과", exact: true }),
+  ).toBeVisible();
+  const after = await read(p);
+  expect(after.attempts).toEqual(before.attempts);
+  expect(after.sessions[0].status).toBe("ended");
+});
+test("메뉴·답안표·홈 왕복과 blur는 같은 실행의 문항 필기와 undo/redo를 유지한다", async ({
+  page: p,
+}) => {
+  await begin(p, false);
+  await draw(p);
+  await draw(p, 2);
+  const original = await marks(p)
+    .locator("path")
+    .evaluateAll((nodes) => nodes.map((n) => n.getAttribute("d")));
+  await p.getByRole("button", { name: "필기 실행 취소", exact: true }).click();
+  await p.getByRole("button", { name: "답안표 0/20", exact: true }).click();
+  await p.getByRole("button", { name: "답안표 닫기", exact: true }).click();
+  await p.getByRole("button", { name: "메뉴", exact: true }).click();
+  await p.getByRole("button", { name: "학습 홈", exact: true }).click();
+  await expect(
+    p.getByRole("heading", { name: "원문 기출 학습", exact: true }),
+  ).toBeVisible();
+  await p.getByRole("button", { name: "이어 풀기 →", exact: true }).click();
+  await expect(marks(p)).toHaveCount(1);
+  await expect(
+    p.getByRole("button", { name: "필기 다시 실행", exact: true }),
+  ).toBeEnabled();
+  await p.getByRole("button", { name: "필기 다시 실행", exact: true }).click();
+  expect(
+    await marks(p)
+      .locator("path")
+      .evaluateAll((nodes) => nodes.map((n) => n.getAttribute("d"))),
+  ).toEqual(original);
+  await p.evaluate(() => {
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(marks(p)).toHaveCount(2);
+  await p.getByRole("button", { name: "1번 선택", exact: true }).click();
+  await p.getByRole("button", { name: "답 제출", exact: true }).click();
+  await expect(marks(p)).toHaveCount(2);
+  await p.locator(".explanation-panel > summary").click();
+  await expect(marks(p)).toHaveCount(2);
 });
 test("손 이동 중 펜 접촉은 해당 손을 끝날 때까지 무효화하고 새 손은 기존 손바닥이 남아도 즉시 이동·탭한다", async ({
   page: p,
@@ -722,4 +800,92 @@ test("TouchEvent 호환 손바닥 접촉은 펜을 뗀 뒤에도 취소하고 �
   await expect(one).toHaveAttribute("aria-pressed", "true");
   await two.click();
   await expect(two).toHaveAttribute("aria-pressed", "true");
+});
+
+test("문항을 떠나는 진행 중 획은 기존 문항에 확정되고 다음 문항에 마지막 점을 넣지 않는다", async ({
+  page: p,
+}) => {
+  await begin(p);
+  const release = await holdPen(p, 801);
+  await p.getByRole("button", { name: "다음 문항", exact: true }).focus();
+  await p.keyboard.press("Enter");
+  await expect.poll(async () => (await active(p)).index).toBe(1);
+  await expect(marks(p)).toHaveCount(0);
+  // The old captured surface handle now addresses the remounted paper locator;
+  // an up with no down here must not leak that old gesture into question two.
+  await release();
+  await expect(marks(p)).toHaveCount(0);
+  await p.getByRole("button", { name: "이전 문항", exact: true }).click();
+  await expect(marks(p)).toHaveCount(1);
+  await p.getByRole("button", { name: "필기 실행 취소", exact: true }).click();
+  await expect(marks(p)).toHaveCount(0);
+  await p.getByRole("button", { name: "필기 다시 실행", exact: true }).click();
+  await expect(marks(p)).toHaveCount(1);
+});
+test("real-demo 전환은 이전 영역의 임시 필기를 해제하고 저장된 진행 답안은 보존한다", async ({
+  page: p,
+}) => {
+  await begin(p);
+  await draw(p);
+  await p.getByRole("button", { name: "1번 선택", exact: true }).click();
+  const before = await active(p);
+  await p.getByRole("button", { name: "메뉴", exact: true }).click();
+  await p.getByRole("button", { name: "학습 홈", exact: true }).click();
+  await p.getByLabel("저장 영역", { exact: true }).selectOption("real");
+  await expect(
+    p.getByRole("heading", { name: "원문 기출 학습", exact: true }),
+  ).toBeVisible();
+  await expect(p.locator(".ink-layer")).toHaveCount(0);
+  await p.getByLabel("저장 영역", { exact: true }).selectOption("demo");
+  // Loading this namespace resumes its active quiz automatically.
+  await expect(area(p)).toHaveAttribute("data-ink-ready", "true");
+  await expect(marks(p)).toHaveCount(0);
+  expect((await active(p)).id).toBe(before.id);
+  expect((await active(p)).responses).toEqual(before.responses);
+});
+
+test("키보드 도구 변경으로 획을 마쳐도 실제 펜을 뗄 때까지 손은 차단하고 새 손은 복구한다", async ({
+  page: p,
+}) => {
+  await begin(p);
+  const box = (await area(p).boundingBox())!;
+  const cdp = await p.context().newCDPSession(p);
+  const one = p.getByRole("button", { name: "1번 선택", exact: true });
+  try {
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      pointerType: "pen",
+      x: box.x + 180,
+      y: box.y + 30,
+      button: "left",
+      buttons: 1,
+      force: 0.5,
+    });
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      pointerType: "pen",
+      x: box.x + 230,
+      y: box.y + 40,
+      buttons: 1,
+      force: 0.6,
+    });
+    await p.getByRole("button", { name: "지우개", exact: true }).focus();
+    await p.keyboard.press("Enter");
+    await expect(marks(p)).toHaveCount(1);
+    await tap(one, "touch", 0, 901);
+    await expect(one).toHaveAttribute("aria-pressed", "false");
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      pointerType: "pen",
+      x: box.x + 230,
+      y: box.y + 40,
+      button: "left",
+      buttons: 0,
+      force: 0,
+    });
+    await tap(one, "touch", 0, 902);
+    await expect(one).toHaveAttribute("aria-pressed", "true");
+  } finally {
+    await cdp.detach();
+  }
 });

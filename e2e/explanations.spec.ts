@@ -302,7 +302,6 @@ for (const namespace of ["demo", "real"] as const) {
       buttons: 0,
     });
     await expect(paper.locator("g[data-ink-stroke]")).toHaveCount(1);
-    const path = await paper.locator("g path").getAttribute("d");
     await p.getByRole("button", { name: "1번 선택", exact: true }).click();
     await p.getByRole("button", { name: "답 제출", exact: true }).click();
     await expect(p.locator(".explanation-panel > summary")).toContainText(
@@ -322,7 +321,7 @@ for (const namespace of ["demo", "real"] as const) {
     expect(before.attempts[0].result).toBe("incorrect");
     await p.reload();
     await expect(paper).toHaveAttribute("data-ink-ready", "true");
-    await expect(paper.locator("g path")).toHaveAttribute("d", path!);
+    await expect(paper.locator("g[data-ink-stroke]")).toHaveCount(0);
     expect((await storedWithoutExplanations(p, namespace)).attempts).toEqual(
       before.attempts,
     );

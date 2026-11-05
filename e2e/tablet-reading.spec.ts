@@ -860,7 +860,7 @@ test("PDF 물리 개행은 기본 자동에서 실제 글줄 폭을 쓰고 의�
   ).toBe(sourceBefore);
 });
 
-test("줄바꿈 자동·원문의 획과 실행 취소는 따로 복원하고 문제·응답을 바꾸지 않는다", async ({
+test("줄바꿈 자동·원문 전환은 한 임시 획 이력을 유지하고 새로고침은 문제·응답만 복원한다", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -927,7 +927,10 @@ test("줄바꿈 자동·원문의 획과 실행 취소는 따로 복원하고 �
     await expect(
       page
         .locator(".ink-tools")
-        .getByText("필기 이 기기에 저장됨", { exact: true }),
+        .getByText(
+          "필기는 현재 학습 중에만 유지됩니다. 새로고침하거나 학습을 종료하면 사라집니다.",
+          { exact: true },
+        ),
     ).toBeVisible();
   };
   const undo = page.getByRole("button", {
@@ -949,35 +952,26 @@ test("줄바꿈 자동·원문의 획과 실행 취소는 따로 복원하고 �
 
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  await expect(marks).toHaveCount(0);
-  await expect(undo).toBeDisabled();
-  await expect(redo).toBeDisabled();
-  await draw(603, 40);
-  await expect(marks).toHaveCount(1);
-  const originalPaths = await paths();
-  await undo.click();
-  await expect(marks).toHaveCount(0);
-  await redo.click();
-  await expect(marks).toHaveCount(1);
-  expect(await paths()).toEqual(originalPaths);
-
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-pressed", "true");
   await expect(marks).toHaveCount(1);
   expect(await paths()).toEqual(autoPaths.slice(0, 1));
   await expect(redo).toBeEnabled();
   await redo.click();
   await expect(marks).toHaveCount(2);
   expect(await paths()).toEqual(autoPaths);
+  await draw(603, 40);
+  await expect(marks).toHaveCount(3);
+  const allPaths = await paths();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  expect(await paths()).toEqual(allPaths);
+  await undo.click();
+  await expect(marks).toHaveCount(2);
+  expect(await paths()).toEqual(autoPaths);
+  await redo.click();
+  await expect(marks).toHaveCount(3);
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  await expect(marks).toHaveCount(1);
-  expect(await paths()).toEqual(originalPaths);
-  await undo.click();
-  await expect(marks).toHaveCount(0);
-  await redo.click();
-  await expect(marks).toHaveCount(1);
-  expect(await paths()).toEqual(originalPaths);
+  expect(await paths()).toEqual(allPaths);
 
   expect(await area.locator(".original-content").first().textContent()).toBe(
     raw,
@@ -992,10 +986,8 @@ test("줄바꿈 자동·원문의 획과 실행 취소는 따로 복원하고 �
   );
   await page.reload();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  await expect(marks).toHaveCount(1);
-  expect(await paths()).toEqual(originalPaths);
+  await expect(marks).toHaveCount(0);
   expect((await activeSession(page)).responses).toEqual(session.responses);
   await toggle.click();
-  await expect(marks).toHaveCount(2);
-  expect(await paths()).toEqual(autoPaths);
+  await expect(marks).toHaveCount(0);
 });

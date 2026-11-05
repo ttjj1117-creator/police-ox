@@ -67,6 +67,7 @@ import {
 } from "./explanations/ExplanationUI";
 import { QuizInputGuard } from "./ink/InputGuard";
 import { QuizExitDialog } from "./ink/ExitDialog";
+import { InkSessionMemory } from "./ink/memory";
 import { ReadingFlowText } from "./ReadingFlowText";
 import {
   InkProvider,
@@ -133,6 +134,28 @@ export function OriginalApp({
   const [envelope, setEnvelope] = useState<Envelope | null>(null);
   const cloud = useCloudSync(namespace);
   const oxCloud = useOxSync(namespace);
+  // The app owns temporary strokes across question/provider and home remounts.
+  // A true account/area transition replaces the memory before children read it;
+  // token refreshes and sync generations keep the same owner and memory.
+  const inkOwnerKey =
+    namespace === "real" ? (cloud.ownerId ?? "local") : "local";
+  const inkScopeKey = JSON.stringify([namespace, cloud.ownerId ?? "local"]);
+  const inkScope = useRef<{
+    key: string;
+    ownerKey: string;
+    namespace: Namespace;
+    memory: InkSessionMemory;
+  } | null>(null);
+  if (!inkScope.current || inkScope.current.key !== inkScopeKey) {
+    inkScope.current?.memory.clear();
+    inkScope.current = {
+      key: inkScopeKey,
+      ownerKey: inkOwnerKey,
+      namespace,
+      memory: new InkSessionMemory(),
+    };
+  }
+  const inkMemory = inkScope.current.memory;
   const explanations = useExplanationLibrary(
     namespace === "real" ? (cloud.ownerId ?? "local") : "local",
     namespace,
@@ -164,7 +187,6 @@ export function OriginalApp({
   const oxRepository = oxCloud.controller;
   const [answerSheetOpen, setAnswerSheetOpen] = useState(false);
   const [exitRequest, setExitRequest] = useState(false);
-  const [legacyInk, setLegacyInk] = useState(false);
   const envelopeRef = useRef<Envelope | null>(null);
   const [page, setPage] = useState<Page>(() =>
     typeof window !== "undefined" &&
@@ -200,6 +222,16 @@ export function OriginalApp({
   const nsRef = useRef(namespace);
   nsRef.current = namespace;
   function install(e: Envelope) {
+    // Only installed durable records release temporary ink. Draft failures and
+    // cancelled exits preserve it, including deadline/answer retry paths.
+    const scope = inkScope.current!;
+    for (const savedSession of e.state.sessions)
+      if (savedSession.status !== "active")
+        scope.memory.discardSession(
+          scope.ownerKey,
+          scope.namespace,
+          savedSession.id,
+        );
     envelopeRef.current = e;
     setEnvelope(e);
   }
@@ -469,7 +501,6 @@ export function OriginalApp({
   }, [page, sessionId, session?.index]);
   useEffect(() => {
     setExitRequest(false);
-    setLegacyInk(false);
   }, [page, sessionId, q?.id, session?.status]);
   const sessionAttempts = useMemo(() => {
     const index = new Map<string, Attempt>();
@@ -1313,6 +1344,7 @@ export function OriginalApp({
                 ownerKey={
                   namespace === "real" ? (cloud.ownerId ?? "local") : "local"
                 }
+                memory={inkMemory}
                 namespace={namespace}
                 sessionId={session.id}
                 questionId={q.id}
@@ -1387,10 +1419,7 @@ export function OriginalApp({
                       );
                   }}
                 />
-                <InkToolbar
-                  legacy={legacyInk}
-                  onToggleLegacy={() => setLegacyInk((x) => !x)}
-                />
+                <InkToolbar />
                 <div className="original-quiz-grid">
                   <div>
                     <section className="original-question">
@@ -1423,22 +1452,12 @@ export function OriginalApp({
                           {state.marks[q.id] ? "★ 다시 보기" : "☆ 다시 보기"}
                         </button>
                       </div>
-                      <QuestionPaper legacy={legacyInk}>
-                        {legacyInk ? (
-                          <InkSurface surfaceId="body" readOnly>
-                            <Blocks
-                              blocks={q.body}
-                              assets={session.assets}
-                              readingFlow={readingFlow}
-                            />
-                          </InkSurface>
-                        ) : (
-                          <Blocks
-                            blocks={q.body}
-                            assets={session.assets}
-                            readingFlow={readingFlow}
-                          />
-                        )}
+                      <QuestionPaper>
+                        <Blocks
+                          blocks={q.body}
+                          assets={session.assets}
+                          readingFlow={readingFlow}
+                        />
                         <div className="original-choices">
                           {q.choices.map((c) => {
                             const selected =
@@ -1481,24 +1500,11 @@ export function OriginalApp({
                                   </span>
                                 </InkChoiceButton>
                                 <div className="original-choice-text">
-                                  {legacyInk ? (
-                                    <InkSurface
-                                      surfaceId={`choice-${c.number}`}
-                                      readOnly
-                                    >
-                                      <Blocks
-                                        blocks={c.blocks}
-                                        assets={session.assets}
-                                        readingFlow={readingFlow}
-                                      />
-                                    </InkSurface>
-                                  ) : (
-                                    <Blocks
-                                      blocks={c.blocks}
-                                      assets={session.assets}
-                                      readingFlow={readingFlow}
-                                    />
-                                  )}
+                                  <Blocks
+                                    blocks={c.blocks}
+                                    assets={session.assets}
+                                    readingFlow={readingFlow}
+                                  />
                                 </div>
                               </div>
                             );
@@ -2577,16 +2583,8 @@ function Result({
     </>
   );
 }
-function QuestionPaper({
-  legacy,
-  children,
-}: {
-  legacy: boolean;
-  children: import("react").ReactNode;
-}) {
-  return legacy ? (
-    <>{children}</>
-  ) : (
+function QuestionPaper({ children }: { children: import("react").ReactNode }) {
+  return (
     <InkSurface surfaceId="paper">
       <div className="original-paper">{children}</div>
     </InkSurface>

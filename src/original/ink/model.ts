@@ -21,11 +21,6 @@ export interface InkHistory {
   undo: InkStroke[][];
   redo: InkStroke[][];
 }
-export interface InkDocument {
-  schemaVersion: 1;
-  identity: InkIdentity;
-  layouts: Record<string, InkHistory>;
-}
 export const inkIdentityKey = (identity: InkIdentity): string =>
   JSON.stringify([
     identity.ownerKey,
@@ -38,11 +33,6 @@ export const emptyInkHistory = (): InkHistory => ({
   strokes: [],
   undo: [],
   redo: [],
-});
-export const emptyInkDocument = (identity: InkIdentity): InkDocument => ({
-  schemaVersion: 1,
-  identity: { ...identity },
-  layouts: {},
 });
 export function editInk(history: InkHistory, strokes: InkStroke[]): InkHistory {
   if (strokes === history.strokes) return history;
@@ -73,50 +63,6 @@ export function sameInkIdentity(
   right: InkIdentity,
 ): boolean {
   return inkIdentityKey(left) === inkIdentityKey(right);
-}
-export function validInkDocument(
-  value: unknown,
-  identity: InkIdentity,
-): value is InkDocument {
-  if (!value || typeof value !== "object") return false;
-  const doc = value as InkDocument;
-  if (
-    doc.schemaVersion !== 1 ||
-    !doc.identity ||
-    !sameInkIdentity(doc.identity, identity) ||
-    !doc.layouts ||
-    typeof doc.layouts !== "object" ||
-    Array.isArray(doc.layouts)
-  )
-    return false;
-  const validStroke = (stroke: InkStroke): boolean =>
-    !!stroke &&
-    typeof stroke.id === "string" &&
-    typeof stroke.surfaceId === "string" &&
-    Array.isArray(stroke.points) &&
-    stroke.points.length > 0 &&
-    stroke.points.every(
-      (p) =>
-        !!p &&
-        Number.isFinite(p.x) &&
-        Number.isFinite(p.y) &&
-        Number.isFinite(p.pressure) &&
-        p.pressure > 0 &&
-        p.pressure <= 1,
-    );
-  return Object.values(doc.layouts).every(
-    (layout) =>
-      layout &&
-      [
-        layout.strokes,
-        ...((Array.isArray(layout.undo) && layout.undo) || []),
-        ...((Array.isArray(layout.redo) && layout.redo) || []),
-      ].every(
-        (strokes) => Array.isArray(strokes) && strokes.every(validStroke),
-      ) &&
-      Array.isArray(layout.undo) &&
-      Array.isArray(layout.redo),
-  );
 }
 export function inkPressure(value: number, fallback = 0.5): number {
   return Number.isFinite(value) && value > 0 && value <= 1

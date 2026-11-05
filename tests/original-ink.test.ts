@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { IDBFactory } from "fake-indexeddb";
 import {
   choicePointerAllowed,
   InkInputCoordinator,
   InkFingerPan,
   editInk,
-  emptyInkDocument,
   emptyInkHistory,
   eraseInk,
   inkIdentityKey,
@@ -15,11 +13,10 @@ import {
   localInkPoint,
   redoInk,
   undoInk,
-  validInkDocument,
   type InkIdentity,
   type InkStroke,
 } from "../src/original/ink/model";
-import { InkRecoveryError, InkStore } from "../src/original/ink/store";
+import { InkSessionMemory } from "../src/original/ink/memory";
 
 const identity: InkIdentity = {
   ownerKey: "project|user-a",
@@ -205,158 +202,107 @@ describe("local pencil history and input boundary", () => {
   });
 });
 
-describe("separate durable local pencil store", () => {
-  it("keeps a failed old-question draft for the same identity to retry after remount", async () => {
-    const factory = new IDBFactory();
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    class FailingStore extends InkStore {
-      protected override async writeNow() {
-        await gate;
-        throw new DOMException("Quota", "QuotaExceededError");
-      }
-    }
-    const oldProvider = new FailingStore(factory),
-      newProvider = new InkStore(factory);
-    const document = emptyInkDocument(identity);
-    document.layouts.current = editInk(emptyInkHistory(), [stroke("unsaved")]);
-    const saving = oldProvider.write(document).catch((error: unknown) => error);
-    const reading = newProvider.read(identity).catch((error: unknown) => error);
-    release();
-    expect(await saving).toBeInstanceOf(InkRecoveryError);
-    const recovery = await reading;
-    expect(recovery).toBeInstanceOf(InkRecoveryError);
-    expect((recovery as InkRecoveryError).document).toEqual(document);
-    expect(
-      await newProvider.read({ ...identity, ownerKey: "project|other" }),
-    ).toBeUndefined();
-    expect(
-      await newProvider.read({ ...identity, sessionId: "other-session" }),
-    ).toBeUndefined();
-    await newProvider.write((recovery as InkRecoveryError).document);
-    expect(await newProvider.read(identity)).toEqual(document);
-    await newProvider.close();
+describe("current-learning temporary ink memory", () => {
+  it("keeps the same question history and undo/redo through provider remounts", () => {
+    const memory = new InkSessionMemory();
+    memory.update(identity, (h) => editInk(h, [stroke()]));
+    memory.update(identity, (h) => editInk(h, [...h.strokes, stroke("b")]));
+    const other = { ...identity, questionId: "q2" };
+    memory.update(other, (h) => editInk(h, [stroke("other")]));
+    memory.update(identity, undoInk);
+    expect(memory.read(identity).strokes.map((s) => s.id)).toEqual(["a"]);
+    expect(memory.read(identity).redo).toHaveLength(1);
+    memory.update(identity, redoInk);
+    expect(memory.read(identity).strokes.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(memory.read(other).strokes.map((s) => s.id)).toEqual(["other"]);
   });
-  it("a new question provider waits for all old-provider strokes before reading", async () => {
-    const factory = new IDBFactory();
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    class SlowStore extends InkStore {
-      protected override async writeNow(
-        document: ReturnType<typeof emptyInkDocument>,
-      ) {
-        await gate;
-        await super.writeNow(document);
-      }
-    }
-    const oldProvider = new SlowStore(factory),
-      newProvider = new InkStore(factory);
-    const first = emptyInkDocument(identity);
-    first.layouts.current = editInk(emptyInkHistory(), [stroke()]);
-    const second = {
-      ...first,
-      layouts: {
-        current: editInk(first.layouts.current, [
-          ...first.layouts.current.strokes,
-          stroke("b"),
-        ]),
-      },
-    };
-    const writes = [oldProvider.write(first), oldProvider.write(second)];
-    let readFinished = false;
-    const reading = newProvider.read(identity).then((value) => {
-      readFinished = true;
-      return value;
-    });
-    await Promise.resolve();
-    expect(readFinished).toBe(false);
-    release();
-    await Promise.all(writes);
-    expect((await reading)?.layouts.current.strokes.map((s) => s.id)).toEqual([
-      "a",
-      "b",
-    ]);
-    await oldProvider.close();
-    await newProvider.close();
-  });
-  it("restores strokes and undo/redo per exact layout without changing another layout", async () => {
-    const factory = new IDBFactory(),
-      store = new InkStore(factory);
-    const document = emptyInkDocument(identity);
-    document.layouts["22px;1280;content-a"] = editInk(emptyInkHistory(), [
-      stroke(),
-    ]);
-    document.layouts["33px;1280;content-a"] = editInk(emptyInkHistory(), [
-      stroke("large"),
-    ]);
-    await store.write(document);
-    await store.close();
-    const reopened = new InkStore(factory);
-    expect(await reopened.read(identity)).toEqual(document);
-    const changed = {
-      ...document,
-      layouts: {
-        ...document.layouts,
-        "33px;1280;content-a": undoInk(document.layouts["33px;1280;content-a"]),
-      },
-    };
-    await reopened.write(changed);
-    expect(
-      (await reopened.read(identity))?.layouts["22px;1280;content-a"].strokes,
-    ).toEqual([stroke()]);
-    expect(
-      (await reopened.read(identity))?.layouts["33px;1280;content-a"].redo,
-    ).toHaveLength(1);
-    await reopened.close();
-  });
-  it("isolates owner, namespace, session, question and content versions", async () => {
-    const store = new InkStore(new IDBFactory());
-    const document = emptyInkDocument(identity);
-    document.layouts.original = editInk(emptyInkHistory(), [stroke()]);
-    await store.write(document);
-    for (const alternate of [
-      { ...identity, ownerKey: "project|user-b" },
+  it("isolates owner, real/demo, session, question and content version", () => {
+    const memory = new InkSessionMemory();
+    memory.update(identity, (h) => editInk(h, [stroke()]));
+    for (const other of [
+      { ...identity, ownerKey: "project|other" },
       { ...identity, namespace: "demo" as const },
       { ...identity, sessionId: "s2" },
       { ...identity, questionId: "q2" },
-      { ...identity, contentVersion: "render-v2:revision1" },
+      { ...identity, contentVersion: "render-v2:revision2" },
     ]) {
-      expect(inkIdentityKey(alternate)).not.toBe(inkIdentityKey(identity));
-      expect(await store.read(alternate)).toBeUndefined();
+      expect(inkIdentityKey(other)).not.toBe(inkIdentityKey(identity));
+      expect(memory.read(other)).toEqual(emptyInkHistory());
     }
-    expect(await store.read(identity)).toEqual(document);
-    await store.close();
+    expect(memory.read(identity).strokes).toEqual([stroke()]);
   });
-  it("rejects malformed drawing data while preserving the last durable document", async () => {
-    const store = new InkStore(new IDBFactory());
-    const document = emptyInkDocument(identity);
-    document.layouts.current = editInk(emptyInkHistory(), [stroke()]);
-    await store.write(document);
-    const invalid = structuredClone(document);
-    invalid.layouts.current.strokes[0].points[0].x = NaN;
-    expect(validInkDocument(invalid, identity)).toBe(false);
-    await expect(store.write(invalid)).rejects.toThrow("필기 형식");
-    expect(await store.read(identity)).toEqual(document);
-    expect(validInkDocument(document, { ...identity, ownerKey: "other" })).toBe(
-      false,
+  it("releases only a successfully completed session's question histories", () => {
+    const memory = new InkSessionMemory();
+    const sameSession = { ...identity, questionId: "q2" };
+    const remaining = [
+      { ...identity, sessionId: "s2" },
+      { ...identity, ownerKey: "project|other" },
+      { ...identity, namespace: "demo" as const },
+    ];
+    for (const key of [identity, sameSession, ...remaining])
+      memory.update(key, (h) => editInk(h, [stroke()]));
+    memory.discardSession(
+      identity.ownerKey,
+      identity.namespace,
+      identity.sessionId,
     );
-    await store.close();
+    expect(memory.read(identity)).toEqual(emptyInkHistory());
+    expect(memory.read(sameSession)).toEqual(emptyInkHistory());
+    for (const key of remaining)
+      expect(memory.read(key).strokes).toEqual([stroke()]);
   });
-  it("reports unavailable storage as failure rather than acknowledging a save", async () => {
-    const failed = new InkStore({
-      open: () => {
-        throw new DOMException("Denied", "SecurityError");
-      },
-    } as unknown as IDBFactory);
-    await expect(failed.write(emptyInkDocument(identity))).rejects.toThrow(
-      "필기를 저장하지 못했습니다",
+  it("a page restart starts empty without importing a previous controller", () => {
+    const first = new InkSessionMemory();
+    first.update(identity, (h) => editInk(h, [stroke()]));
+    expect(new InkSessionMemory().read(identity)).toEqual(emptyInkHistory());
+    expect(first.read(identity).strokes).toEqual([stroke()]);
+  });
+  it("owner/area clearing drops strokes and undo/redo without depending on storage", () => {
+    const memory = new InkSessionMemory();
+    memory.update(identity, (h) => editInk(h, [stroke()]));
+    memory.update(identity, undoInk);
+    memory.clear();
+    expect(memory.read(identity)).toEqual(emptyInkHistory());
+    memory.update(identity, (h) => editInk(h, [stroke("fresh")]));
+    expect(memory.read(identity).strokes.map((s) => s.id)).toEqual(["fresh"]);
+  });
+  it("does not silently evict current question ink after visiting many other questions", () => {
+    const memory = new InkSessionMemory();
+    memory.update(identity, (h) => editInk(h, [stroke()]));
+    for (let n = 0; n < 1200; n++)
+      memory.update({ ...identity, questionId: "visited-" + n }, (h) =>
+        editInk(h, [stroke(String(n))]),
+      );
+    expect(memory.read(identity).strokes).toEqual([stroke()]);
+    memory.update(identity, (h) => editInk(h, []));
+    expect(memory.read(identity).strokes).toHaveLength(0);
+    memory.update(identity, undoInk);
+    expect(memory.read(identity).strokes).toEqual([stroke()]);
+  });
+});
+
+describe("retired temporary ink callbacks", () => {
+  it("late pending strokes cannot resurrect a successfully finished session", () => {
+    const memory = new InkSessionMemory();
+    const handle = memory.capture(identity);
+    handle.update((h) => editInk(h, [stroke()]));
+    memory.discardSession(
+      identity.ownerKey,
+      identity.namespace,
+      identity.sessionId,
     );
-    await expect(failed.read(identity)).rejects.toThrow(
-      "필기를 저장하지 못했습니다",
-    );
+    handle.update((h) => editInk(h, [stroke("late")]));
+    expect(handle.history).toEqual(emptyInkHistory());
+    expect(memory.read(identity)).toEqual(emptyInkHistory());
+  });
+  it("late callbacks from a cleared owner cannot modify its new entry", () => {
+    const memory = new InkSessionMemory();
+    const old = memory.capture(identity);
+    old.update((h) => editInk(h, [stroke("old")]));
+    memory.clear();
+    memory.update(identity, (h) => editInk(h, [stroke("new")]));
+    old.update((h) => editInk(h, [stroke("late")]));
+    expect(old.history).toEqual(emptyInkHistory());
+    expect(memory.read(identity).strokes.map((s) => s.id)).toEqual(["new"]);
   });
 });
