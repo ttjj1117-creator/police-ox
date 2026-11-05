@@ -1,5 +1,6 @@
 import {
   createContext,
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -123,7 +124,11 @@ export function InkProvider({
         measurements.length && measurements.every(([, value]) => value !== null)
           ? JSON.stringify(measurements)
           : "";
-      setLayout({ identityKey, key });
+      setLayout((previous) =>
+        previous.identityKey === identityKey && previous.key === key
+          ? previous
+          : { identityKey, key },
+      );
     });
   }, [identityKey]);
 
@@ -504,6 +509,37 @@ const strokePath = (points: InkPoint[]) =>
     : "";
 const strokePressure = (points: InkPoint[]) =>
   points.reduce((sum, p) => sum + p.pressure, 0) / Math.max(1, points.length);
+// A committed stroke is immutable. Saving, timer and tool updates need not
+// rebuild its path or rescan every pressure sample.
+const CompletedInkStroke = memo(function CompletedInkStroke({
+  stroke,
+  hidden,
+}: {
+  stroke: InkStroke;
+  hidden: boolean;
+}) {
+  const drawing = useMemo(() => {
+    const pressure = strokePressure(stroke.points);
+    return {
+      path: strokePath(stroke.points),
+      opacity: 0.72 + pressure * 0.16,
+      width: inkWidth(pressure),
+    };
+  }, [stroke]);
+  return (
+    <g data-ink-stroke={stroke.id} visibility={hidden ? "hidden" : undefined}>
+      <path
+        d={drawing.path}
+        fill="none"
+        stroke="#454747"
+        strokeOpacity={drawing.opacity}
+        strokeWidth={drawing.width}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </g>
+  );
+});
 interface Gesture {
   pointerId: number;
   token: string;
@@ -529,31 +565,86 @@ export function InkSurface({
   const draft = useRef<SVGPathElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const frame = useRef(0);
+  const geometryFrame = useRef(0);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const lastGeometry = useRef("");
+  const committedLayout = useRef({ key: "", signature: "" });
+  const layoutSignature = useMemo(() => {
+    if (!ink.layoutKey) return "";
+    try {
+      const measured = (JSON.parse(ink.layoutKey) as [string, unknown][]).find(
+        ([id]) => id === surfaceId,
+      );
+      return measured ? JSON.stringify(measured[1]) : "";
+    } catch {
+      return "";
+    }
+  }, [ink.layoutKey, surfaceId]);
+  const geometry = useRef<{
+    dirty: boolean;
+    value: unknown;
+    signature: string;
+  }>({
+    dirty: true,
+    value: null,
+    signature: "null",
+  });
+  const finishRef = useRef<() => void>(() => {});
   const latest = useRef(ink);
   latest.current = ink;
+  const readGeometry = useCallback(() => {
+    if (geometry.current.dirty && content.current) {
+      const value = layoutMeasurement(content.current);
+      geometry.current = {
+        dirty: false,
+        value,
+        signature: JSON.stringify(value),
+      };
+    }
+    return geometry.current;
+  }, []);
   const checkGeometry = useCallback(() => {
-    const element = content.current;
-    if (!element) return;
-    const next = JSON.stringify(layoutMeasurement(element));
-    if (next !== lastGeometry.current) {
+    if (!content.current) return;
+    const next = readGeometry();
+    if (next.signature !== lastGeometry.current) {
+      // Finish in the geometry captured at down, before any more samples can be
+      // mixed into a newly reflowed paper. No empty replacement is persisted.
+      finishRef.current();
       // Hide synchronously before a resize/font reflow paints old coordinates.
       layer.current?.setAttribute("data-layout-pending", "true");
       latest.current.measure();
-    }
-  }, []);
-  useLayoutEffect(() => {
-    checkGeometry();
-    if (
-      content.current &&
-      JSON.stringify(layoutMeasurement(content.current)) ===
-        lastGeometry.current &&
-      ink.layoutKey
+    } else if (
+      next.value !== null &&
+      committedLayout.current.key &&
+      committedLayout.current.key === latest.current.layoutKey &&
+      committedLayout.current.signature === next.signature
     ) {
       layer.current?.removeAttribute("data-layout-pending");
     }
-  });
+  }, [readGeometry]);
+  const invalidateGeometry = useCallback(() => {
+    geometry.current.dirty = true;
+    // Resize, font and DOM notifications for one reflow share one exact read.
+    cancelAnimationFrame(geometryFrame.current);
+    geometryFrame.current = requestAnimationFrame(checkGeometry);
+  }, [checkGeometry]);
+  useLayoutEffect(() => {
+    // A provider read precedes its React commit. Tie visible/input coordinates
+    // to the exact key that actually committed, not merely its latest read.
+    committedLayout.current = {
+      key: ink.layoutKey,
+      signature: layoutSignature,
+    };
+    // The registered provider read and this readiness check share the cached
+    // signature. Unrelated React renders perform no DOM/Range layout walk.
+    const current = readGeometry();
+    if (
+      current.value !== null &&
+      current.signature === layoutSignature &&
+      ink.layoutKey
+    )
+      layer.current?.removeAttribute("data-layout-pending");
+  }, [ink.layoutKey, ink.ready, layoutSignature, readGeometry]);
 
   const paint = useCallback(() => {
     cancelAnimationFrame(frame.current);
@@ -619,33 +710,82 @@ export function InkSurface({
       /* cancelled or detached pointer */
     }
   }, [surfaceId]);
+  finishRef.current = finish;
 
   useEffect(() => {
     const element = content.current;
     if (!element) return;
     const unregister = ink.register(surfaceId, () => {
-      const measured = layoutMeasurement(element);
-      lastGeometry.current = JSON.stringify(measured);
-      return measured;
+      const measured = readGeometry();
+      lastGeometry.current = measured.signature;
+      return measured.value;
     });
-    const observer = new ResizeObserver(checkGeometry);
+    const observer = new ResizeObserver(() => {
+      // ResizeObserver runs just before paint. Waiting for another animation
+      // frame can display old coordinates over the resized paper for a frame.
+      geometry.current.dirty = true;
+      cancelAnimationFrame(geometryFrame.current);
+      checkGeometry();
+    });
     observer.observe(element);
-    element.addEventListener("load", checkGeometry, true);
-    document.fonts?.addEventListener("loading", checkGeometry);
-    document.fonts?.addEventListener("loadingdone", checkGeometry);
-    document.fonts?.addEventListener("loadingerror", checkGeometry);
-    void document.fonts?.ready.then(checkGeometry);
+    const mutations = new MutationObserver(invalidateGeometry);
+    mutations.observe(element, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: [
+        "class",
+        "style",
+        "src",
+        "width",
+        "height",
+        "hidden",
+        "data-reading-flow",
+        "data-reading-segment",
+      ],
+    });
+    // Font scale and responsive classes live outside the paper. Observe only
+    // their own layout-affecting attributes, not sibling toolbar/SVG updates.
+    for (let node = element.parentElement; node; node = node.parentElement)
+      mutations.observe(node, {
+        attributes: true,
+        attributeFilter: ["class", "style", "hidden"],
+      });
+    element.addEventListener("load", invalidateGeometry, true);
+    window.addEventListener("resize", invalidateGeometry);
+    window.visualViewport?.addEventListener("resize", invalidateGeometry);
+    document.fonts?.addEventListener("loading", invalidateGeometry);
+    document.fonts?.addEventListener("loadingdone", invalidateGeometry);
+    document.fonts?.addEventListener("loadingerror", invalidateGeometry);
+    let active = true;
+    void document.fonts?.ready.then(() => {
+      if (active) invalidateGeometry();
+    });
+    invalidateGeometry();
     return () => {
+      active = false;
       finish();
       unregister();
       observer.disconnect();
-      element.removeEventListener("load", checkGeometry, true);
-      document.fonts?.removeEventListener("loading", checkGeometry);
-      document.fonts?.removeEventListener("loadingdone", checkGeometry);
-      document.fonts?.removeEventListener("loadingerror", checkGeometry);
+      mutations.disconnect();
+      element.removeEventListener("load", invalidateGeometry, true);
+      window.removeEventListener("resize", invalidateGeometry);
+      window.visualViewport?.removeEventListener("resize", invalidateGeometry);
+      document.fonts?.removeEventListener("loading", invalidateGeometry);
+      document.fonts?.removeEventListener("loadingdone", invalidateGeometry);
+      document.fonts?.removeEventListener("loadingerror", invalidateGeometry);
       cancelAnimationFrame(frame.current);
+      cancelAnimationFrame(geometryFrame.current);
     };
-  }, [surfaceId, ink.register, ink.measure, finish, checkGeometry]);
+  }, [
+    surfaceId,
+    ink.register,
+    finish,
+    invalidateGeometry,
+    readGeometry,
+    checkGeometry,
+  ]);
   useEffect(() => {
     finish();
   }, [ink.layoutKey, ink.mode, finish]);
@@ -664,6 +804,7 @@ export function InkSurface({
   }, [finish]);
 
   const append = (event: PointerEvent) => {
+    if (geometry.current.dirty) checkGeometry();
     const current = gesture.current,
       element = content.current;
     if (!current || current.pointerId !== event.pointerId || !element) return;
@@ -713,6 +854,17 @@ export function InkSurface({
       !content.current
     )
       return;
+    // Observers mark invalidation immediately, even before the next animation
+    // frame installs the matching saved layout. Never draw into a stale key.
+    checkGeometry();
+    if (
+      geometry.current.value === null ||
+      geometry.current.signature !== lastGeometry.current ||
+      committedLayout.current.key !== ink.layoutKey ||
+      geometry.current.signature !== committedLayout.current.signature ||
+      layer.current?.getAttribute("data-layout-pending") === "true"
+    )
+      return;
     ink.input.penDown(event.pointerId);
     const token = `${surfaceId}:${event.pointerId}`;
     if (!ink.claim(token)) return;
@@ -741,8 +893,10 @@ export function InkSurface({
     paint();
   };
   useEffect(() => ink.registerFinish(finish), [ink.registerFinish, finish]);
-  const strokes = ink.history.strokes.filter(
-    (stroke) => stroke.surfaceId === surfaceId,
+  const strokes = useMemo(
+    () =>
+      ink.history.strokes.filter((stroke) => stroke.surfaceId === surfaceId),
+    [ink.history.strokes, surfaceId],
   );
   return (
     <div
@@ -802,21 +956,11 @@ export function InkSurface({
       </div>
       <svg ref={layer} className="ink-layer" aria-hidden="true">
         {strokes.map((stroke) => (
-          <g
+          <CompletedInkStroke
             key={stroke.id}
-            data-ink-stroke={stroke.id}
-            visibility={hidden.has(stroke.id) ? "hidden" : undefined}
-          >
-            <path
-              d={strokePath(stroke.points)}
-              fill="none"
-              stroke="#454747"
-              strokeOpacity={0.72 + strokePressure(stroke.points) * 0.16}
-              strokeWidth={inkWidth(strokePressure(stroke.points))}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </g>
+            stroke={stroke}
+            hidden={hidden.has(stroke.id)}
+          />
         ))}
         <path
           ref={draft}
@@ -919,6 +1063,18 @@ export function InkChoiceButton({
           down.ended = true;
           if (Math.hypot(event.clientX - down.x, event.clientY - down.y) >= 8)
             down.moved = true;
+          if (down.type === "pen") {
+            const rect = event.currentTarget.getBoundingClientRect();
+            down.cancelled ||=
+              event.clientX < rect.left ||
+              event.clientX >= rect.right ||
+              event.clientY < rect.top ||
+              event.clientY >= rect.bottom ||
+              (event.nativeEvent.isTrusted &&
+                document
+                  .elementFromPoint(event.clientX, event.clientY)
+                  ?.closest("button") !== event.currentTarget);
+          }
           if (
             !choicePointerAllowed(
               down.type,

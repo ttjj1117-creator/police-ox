@@ -2,7 +2,7 @@
   position: relative;
   min-width: 0;
   font: inherit;
-  touch-action: pinch-zoom;
+  touch-action: none;
 }
 .ink-content {
   display: flow-root;
@@ -21,7 +21,7 @@
   visibility: hidden;
 }
 .original-app.is-quiz .original-choice-button.ink-choice-button {
-  touch-action: pinch-zoom;
+  touch-action: none;
 }
 .original-app.is-quiz .ink-tools {
   border: 1px solid #d8e1d5;
@@ -125,15 +125,15 @@
   font-size: 13px;
 }
 
-/* Prepared before contact: the UA may pinch, while one-finger movement is
-   routed explicitly and cannot take a vertical pen stroke as page panning. */
+/* Prepared before contact: one-finger movement is routed explicitly. Native
+   pinch/double-tap zoom must not steal a pen stroke or select answer controls. */
 .original-app.is-quiz .quiz-input-scope,
 .original-app.is-quiz .quiz-input-scope * {
-  touch-action: pinch-zoom;
+  touch-action: none;
 }
 .original-app.is-quiz .quiz-input-scope[data-pointer-supported="false"],
 .original-app.is-quiz .quiz-input-scope[data-pointer-supported="false"] * {
-  touch-action: auto;
+  touch-action: pan-x pan-y;
 }
 .original-paper {
   padding: 8px 0;
