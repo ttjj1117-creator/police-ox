@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { applyLearningCommand, type LearningCommand } from "./learning";
 import type { Namespace, OriginalPackage, Question } from "./model";
 import {
   activeSession,
@@ -420,6 +421,56 @@ export class OriginalRepository {
       };
       tx.onerror = () => reject(failure ?? tx.error ?? new Error("저장 실패"));
       tx.onabort = () => reject(failure ?? tx.error ?? new Error("저장 실패"));
+    });
+  }
+  /** Limited operations on the transaction's detached state, not a caller-supplied
+   * replacement bank. Generation and account outbox commit remain atomic. */
+  async saveLearning(
+    namespace: Namespace,
+    command: LearningCommand,
+    expectedGeneration: number,
+  ): Promise<OriginalEnvelope> {
+    const key = this.stateKey(namespace),
+      owner = namespace === "real" ? this.accountId : null;
+    const db = await this.db;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("states", "readwrite"),
+        store = tx.objectStore("states"),
+        metadata = owner ? store.get(syncMetaKey(owner)) : null,
+        get = store.get(key);
+      let failure: Error | null = null,
+        next: OriginalEnvelope;
+      get.onsuccess = () => {
+        if ((get.result?.generation ?? 0) !== expectedGeneration) {
+          failure = new ConflictError();
+          tx.abort();
+          return;
+        }
+        try {
+          const previous = get.result?.state ?? initialOriginalState(namespace);
+          const state = applyLearningCommand(previous, command);
+          next = { generation: expectedGeneration + 1, state };
+          if (owner)
+            store.put(
+              queueChanges(
+                previous,
+                state,
+                metadata?.result ?? emptySyncLocal(),
+              ),
+              syncMetaKey(owner),
+            );
+          store.put(next, key);
+        } catch (error) {
+          failure = error instanceof Error ? error : new Error(String(error));
+          tx.abort();
+        }
+      };
+      tx.oncomplete = () => {
+        if (owner) notifySyncLocal();
+        resolve(next);
+      };
+      tx.onerror = tx.onabort = () =>
+        reject(failure ?? tx.error ?? new Error("저장 실패"));
     });
   }
   async fullBackup(namespace: Namespace): Promise<FullBackup> {

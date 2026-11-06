@@ -27,7 +27,10 @@ import {
   type CloudConfig,
 } from "./transport";
 import type { ReceivedEvent, SyncEvent } from "./types";
-import { syncExplanationLibraries } from "../explanations/sync-runner";
+import {
+  syncExplanationLibraries,
+  cancelExplanationSyncWorker,
+} from "../explanations/sync-runner";
 import { usableClock } from "./clock";
 import {
   authReturnUrl,
@@ -81,6 +84,7 @@ export class CloudController {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running: Promise<void> | null = null;
   private rescheduleExplanations = false;
+  private validatedGenerations = new Map<string, number>();
   private initialization: Promise<void> | null = null;
   private refreshPromise: Promise<AuthSession> | null = null;
   private signingOut = false;
@@ -222,6 +226,7 @@ export class CloudController {
         "이 기기에 진행 중인 OX 학습이 있습니다. 먼저 학습을 종료한 뒤 새 로그인 메일을 요청하세요.",
       );
     await this.store.setValue(this.authKey(), auth);
+    if (this.view.ownerId !== this.owner(auth)) cancelExplanationSyncWorker();
     this.emit({ auth, ownerId: this.owner(auth), error: "" });
     await this.reload();
     this.schedule();
@@ -263,6 +268,7 @@ export class CloudController {
         "진행 중인 원문·OX 학습을 종료한 뒤 로그아웃하세요. 답안은 이 기기에 보관됩니다.",
       );
     this.signingOut = true;
+    cancelExplanationSyncWorker();
     try {
       // Both study modes share one refresh operation. A pending refresh may not
       // restore credentials after local signout has closed this account.
@@ -274,6 +280,7 @@ export class CloudController {
         /* Local signout preserves the account's durable state and outbox. */
       }
       await this.store.setValue(this.authKey(), null);
+      this.validatedGenerations.clear();
       this.emit({
         auth: null,
         ownerId: null,
@@ -294,6 +301,7 @@ export class CloudController {
     }
   }
   setEnabled(enabled: boolean) {
+    if (!enabled && this.enabled) cancelExplanationSyncWorker();
     this.enabled = enabled;
     if (enabled) this.schedule();
   }
@@ -313,12 +321,18 @@ export class CloudController {
     const owner = this.view.ownerId,
       next = await this.store.read(owner);
     if (this.view.ownerId !== owner) return;
+    const nextConflicts = getOrderConflictIds(next.meta.projection);
+    const conflictIds =
+      nextConflicts.length === this.view.conflictIds.length &&
+      nextConflicts.every((id, index) => id === this.view.conflictIds[index])
+        ? this.view.conflictIds
+        : nextConflicts;
     this.emit({
       meta: next.meta,
       pending: next.meta.outbox.length,
       lastSuccess: next.meta.lastSuccess,
       generation: next.generation,
-      conflictIds: getOrderConflictIds(next.meta.projection),
+      conflictIds,
     });
   }
   /** Shared by original and OX sync; never persist a second credential copy. */
@@ -358,11 +372,36 @@ export class CloudController {
       if (this.view.ownerId !== owner)
         throw new Error("계정이 변경되어 동기화를 중단했습니다.");
       const current = await this.store.read(owner),
-        next = await transform(structuredClone(current));
+        // IDB read already gives this operation a detached snapshot.
+        next = await transform(current);
       try {
         return await this.store.write(owner, next, current.generation);
       } catch (e) {
         if (i === 2 || !/다른 탭/.test(message(e))) throw e;
+      }
+    }
+    throw new Error("동기화 저장 충돌");
+  }
+  /** The callback can only edit metadata; it cannot provide study state. */
+  private async commitMetadata(
+    owner: string,
+    transform: (meta: SyncLocal) => void,
+  ) {
+    for (let retry = 0; retry < 3; retry++) {
+      if (this.view.ownerId !== owner)
+        throw new Error("계정이 변경되어 동기화를 중단했습니다.");
+      const current = await this.store.read(owner),
+        revision = current.meta.revision ?? 0;
+      transform(current.meta);
+      try {
+        return await this.store.writeMetadata(
+          owner,
+          current.meta,
+          current.generation,
+          revision,
+        );
+      } catch (error) {
+        if (retry === 2 || !/다른 탭/.test(message(error))) throw error;
       }
     }
     throw new Error("동기화 저장 충돌");
@@ -373,20 +412,50 @@ export class CloudController {
     cursor?: number,
     clock?: SyncLocal["clock"],
   ) {
-    await this.commit(owner, async (current) => {
+    for (let retry = 0; retry < 3; retry++) {
+      if (this.view.ownerId !== owner)
+        throw new Error("계정이 변경되어 동기화를 중단했습니다.");
+      const current = await this.store.read(owner),
+        revision = current.meta.revision ?? 0;
       const result = applyEvents(
         current.state,
         current.meta.projection,
         received,
       );
-      await validateOriginalState(result.state, "real");
-      current.state = result.state;
-      current.meta.projection = result.projection;
+      const metadata = { ...current.meta, projection: result.projection };
       if (cursor !== undefined)
-        current.meta.cursor = Math.max(current.meta.cursor, cursor);
-      if (clock) current.meta.clock = clock;
-      return current;
-    });
+        metadata.cursor = Math.max(metadata.cursor, cursor);
+      if (clock) metadata.clock = clock;
+      try {
+        if (result.state === current.state) {
+          // Pure no-event reconciliation proves that no study field changed.
+          // Cold/new generations still receive the full existing validation.
+          if (this.validatedGenerations.get(owner) !== current.generation) {
+            await validateOriginalState(current.state, "real");
+            this.validatedGenerations.set(owner, current.generation);
+          }
+          await this.store.writeMetadata(
+            owner,
+            metadata,
+            current.generation,
+            revision,
+          );
+        } else {
+          // Received/deferred state changes always take the full validation and
+          // ordinary generation/CAS/state-write contract.
+          await validateOriginalState(result.state, "real");
+          const saved = await this.store.write(
+            owner,
+            { ...current, state: result.state, meta: metadata },
+            current.generation,
+          );
+          this.validatedGenerations.set(owner, saved.generation);
+        }
+        return;
+      } catch (error) {
+        if (retry === 2 || !/다른 탭/.test(message(error))) throw error;
+      }
+    }
   }
   async sync(): Promise<void> {
     if (this.running) return this.running;
@@ -399,11 +468,18 @@ export class CloudController {
       return;
     }
     const owner = this.view.ownerId;
+    const requireOnline = () => {
+      if (!navigator.onLine)
+        throw new Error(
+          "오프라인 · 이 기기에 저장됨. 연결 후 다시 동기화하세요.",
+        );
+    };
     let explanationWork: Promise<void> | null = null;
     this.emit({ busy: true, error: "", message: "동기화 중" });
     this.running = (async () => {
       const auth = await this.auth(),
         transport = this.transport!;
+      requireOnline();
       this.emit({ explanationMessage: "해설 동기화 중", explanationError: "" });
       // Libraries have their own immutable objects and merge rules. A question
       // conflict must not stop explanation delivery, or vice versa.
@@ -412,8 +488,12 @@ export class CloudController {
         auth,
         transport.config,
         {
-          current: () =>
-            this.view.ownerId === owner && this.enabled && !this.signingOut,
+          current: () => {
+            if (this.view.ownerId !== owner || !this.enabled || this.signingOut)
+              return false;
+            requireOnline();
+            return true;
+          },
         },
       )
         .then((count) => {
@@ -434,8 +514,9 @@ export class CloudController {
       await this.apply(owner, []);
       const pullAll = async () => {
         for (let page = 0; page < 200; page++) {
-          const snapshot = await this.store.read(owner),
-            result = await transport.pull(snapshot.meta.cursor, auth);
+          const snapshot = await this.store.read(owner);
+          requireOnline();
+          const result = await transport.pull(snapshot.meta.cursor, auth);
           await this.apply(owner, result.events, result.cursor, result.clock);
           if (result.events.length < 50) return;
         }
@@ -449,30 +530,32 @@ export class CloudController {
           event = nextSendable(snapshot.meta);
         if (!event) break;
         try {
-          const wire = await transport.upload(event, auth),
-            ack = await transport.push(wire, auth);
+          requireOnline();
+          const wire = await transport.upload(event, auth);
+          // Connectivity may change during chunk upload. Keep the event queued
+          // unless its publication receives a real server acknowledgement.
+          requireOnline();
+          const ack = await transport.push(wire, auth);
           if (!Number.isSafeInteger(ack.seq) || ack.seq < 1)
             throw new Error("서버 수신 확인이 올바르지 않습니다.");
-          await this.commit(owner, (current) => {
-            current.meta.outbox = current.meta.outbox.filter(
+          await this.commitMetadata(owner, (meta) => {
+            meta.outbox = meta.outbox.filter(
               (e) => e.eventId !== event.eventId,
             );
-            delete current.meta.failures[event.eventId];
-            return current;
+            delete meta.failures[event.eventId];
           });
         } catch (e) {
           if (
             (e instanceof CloudError && /version_conflict/.test(e.code)) ||
             /version_conflict|버전 충돌/i.test(message(e))
           ) {
-            await this.commit(owner, (current) => {
-              current.meta.failures[event.eventId] = message(e);
+            await this.commitMetadata(owner, (meta) => {
+              meta.failures[event.eventId] = message(e);
               holdSuccessors(
-                current.meta,
+                meta,
                 event.eventId,
                 "선행 변경의 버전 충돌로 확인이 필요합니다.",
               );
-              return current;
             });
             continue;
           }
@@ -480,13 +563,9 @@ export class CloudController {
         }
       }
       await pullAll();
-      await this.commit(owner, (current) => {
-        if (
-          !current.meta.outbox.length &&
-          !current.meta.projection.deferred.length
-        )
-          current.meta.lastSuccess = new Date().toISOString();
-        return current;
+      await this.commitMetadata(owner, (meta) => {
+        if (!meta.outbox.length && !meta.projection.deferred.length)
+          meta.lastSuccess = new Date().toISOString();
       });
       await this.reload();
       this.emit({

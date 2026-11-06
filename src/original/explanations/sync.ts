@@ -29,6 +29,69 @@ export interface ExplanationSyncSnapshot {
   published: string[];
   received: string[];
 }
+// Only independently parsed, recursively frozen content may skip another parse
+// or canonical fingerprint. Caller-owned packageVersion/SHA values are not trust.
+const checkedBundles = new WeakSet<ExplanationBundle>();
+const fingerprints = new WeakMap<ExplanationBundle, Promise<string>>();
+function immutableBundle(bundle: ExplanationBundle): ExplanationBundle {
+  // Zod's unknown metadata may retain caller-owned references. Copy the JSON
+  // object tree before freezing; strings (including Base64) are immutable and
+  // need no extra byte conversion. Shallow-frozen input is not a trust marker.
+  const copied = new WeakMap<object, unknown>(),
+    active = new WeakSet<object>();
+  let json = true;
+  const copy = (value: unknown): unknown => {
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "boolean"
+    )
+      return value;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (!value || typeof value !== "object") {
+      json = false;
+      return value;
+    }
+    if (active.has(value)) json = false; // Cyclic/JS-only metadata is never cached.
+    if (copied.has(value)) return copied.get(value);
+    const prototype = Object.getPrototypeOf(value);
+    if (
+      !Array.isArray(value) &&
+      prototype !== Object.prototype &&
+      prototype !== null
+    ) {
+      json = false;
+      return value;
+    }
+    active.add(value);
+    let result: unknown;
+    if (Array.isArray(value)) {
+      const array: unknown[] = [];
+      copied.set(value, array);
+      for (const item of value) array.push(copy(item));
+      result = Object.freeze(array);
+    } else {
+      const object: Record<string, unknown> = {};
+      copied.set(value, object);
+      for (const [key, child] of Object.entries(value))
+        Object.defineProperty(object, key, {
+          value: copy(child),
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      result = Object.freeze(object);
+    }
+    active.delete(value);
+    return result;
+  };
+  const result = copy(bundle) as ExplanationBundle;
+  // Preserve the pre-existing behavior for in-memory non-JSON metadata, but
+  // grant it neither a validated immutable brand nor a fingerprint cache.
+  if (!json) return bundle;
+  checkedBundles.add(result);
+  return result;
+}
 export const explanationSyncKey = (owner: string) =>
   `explanation-sync:${owner}`;
 export const explanationLibraryKey = (owner: string) =>
@@ -78,6 +141,7 @@ export async function parseExplanationBundle(
   value: unknown,
 ): Promise<ExplanationBundle> {
   const v = value as ExplanationBundle;
+  if (checkedBundles.has(v)) return v;
   if (
     !v ||
     !Array.isArray(v.legacy) ||
@@ -93,18 +157,31 @@ export async function parseExplanationBundle(
   for (const p of instructor) await validateInstructorAssets(p);
   // Question matching is checked again by the existing display resolvers. A bank
   // edited after import must not destroy a valid historical explanation archive.
-  return mergeExplanationBundles(
-    { legacy: [], instructor: [] },
-    { legacy, instructor },
+  return immutableBundle(
+    mergeExplanationBundles(
+      { legacy: [], instructor: [] },
+      { legacy, instructor },
+    ),
   );
 }
 export async function explanationBundleFingerprint(
   bundle: ExplanationBundle,
 ): Promise<string> {
-  const bytes = new TextEncoder().encode(canonicalExplanationValue(bundle));
-  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
-    .map((v) => v.toString(16).padStart(2, "0"))
-    .join("");
+  const cached = checkedBundles.has(bundle)
+    ? fingerprints.get(bundle)
+    : undefined;
+  if (cached) return cached;
+  const pending = (async () => {
+    const bytes = new TextEncoder().encode(canonicalExplanationValue(bundle));
+    return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+      .map((v) => v.toString(16).padStart(2, "0"))
+      .join("");
+  })();
+  if (checkedBundles.has(bundle)) {
+    fingerprints.set(bundle, pending);
+    void pending.catch(() => fingerprints.delete(bundle));
+  }
+  return pending;
 }
 
 type RawSnapshot = {
@@ -117,10 +194,23 @@ type RawSnapshot = {
  * new credentials copy is necessary. All library writes compare their snapshot. */
 export class ExplanationSyncRepository {
   private opening?: Promise<IDBDatabase>;
+  private checked = new Map<
+    string,
+    { version: string; value: Promise<ExplanationBundle> }
+  >();
+  private migrations = new Map<
+    string,
+    { source: string; destination: string }
+  >();
   constructor(
     private factory?: IDBFactory,
     private name = "police-original-explanations",
+    private readonly onChanged?: (owner: string) => void,
   ) {}
+  private changed(owner: string): void {
+    if (this.onChanged) this.onChanged(owner);
+    else notifyExplanationChange(false);
+  }
   private db() {
     return (this.opening ??= new Promise<IDBDatabase>((resolve, reject) => {
       const r = (this.factory ?? indexedDB).open(this.name, 2);
@@ -183,7 +273,9 @@ export class ExplanationSyncRepository {
       throw Error(
         "해설 동기화 보관 자료를 읽을 수 없습니다. 원본은 보존됩니다.",
       );
-    return structuredClone(m);
+    // These IDB snapshots are already detached. Copy mutable metadata arrays,
+    // but do not deep-copy the complete archived source on every inspection.
+    return { ...m, published: [...m.published], received: [...m.received] };
   }
   private async bundle(raw: RawSnapshot): Promise<ExplanationBundle> {
     const packages = (value: unknown): unknown[] => {
@@ -201,22 +293,90 @@ export class ExplanationSyncRepository {
     const legacy = packages(raw.legacy).map(parseExplanationPackage);
     const archived = metadata.archivedLegacy.map(parseExplanationPackage);
     const instructor = packages(raw.instructor).map(parseInstructorPackage);
-    return parseExplanationBundle(
-      mergeExplanationBundles(
-        { legacy: archived, instructor: [] },
-        { legacy, instructor },
-      ),
+    // These packages have already passed their complete schemas above.
+    // Preserve bundle-level namespace/index/asset checks without parsing and
+    // merging the same 33+ MiB payload for a second time.
+    const merged = mergeExplanationBundles(
+      { legacy: archived, instructor: [] },
+      { legacy, instructor },
     );
+    if (
+      [...merged.legacy, ...merged.instructor].some(
+        (p) => p.dataKind !== "real",
+      )
+    )
+      throw Error("시연 해설은 실제 계정에 동기화하지 않습니다.");
+    explanationIndex(merged.legacy);
+    for (const p of merged.instructor) await validateInstructorAssets(p);
+    return immutableBundle(merged);
   }
-  async read(owner: string): Promise<ExplanationSyncSnapshot> {
-    const raw = await this.raw(owner),
-      metadata = this.metadata(raw);
+  /** Existing and older writers increment these collection generations. Read
+   * their actual IDB headers, never an external package's declared version/hash.
+   * Raw IO still copies the collection payload; this cache removes repeated
+   * schema/merge/asset/canonical work without changing the storage contract. */
+  private version(raw: RawSnapshot): string {
+    const generation = (value: unknown): number => {
+      if (value === undefined) return -1;
+      const library = value as { generation: number; packages: unknown[] };
+      if (
+        !Number.isSafeInteger(library?.generation) ||
+        library.generation < 0 ||
+        !Array.isArray(library.packages)
+      )
+        throw Error("저장된 해설을 읽을 수 없습니다. 원본은 보존됩니다.");
+      return library.generation;
+    };
+    return JSON.stringify([
+      generation(raw.legacy),
+      generation(raw.instructor),
+      this.metadata(raw).generation,
+    ]);
+  }
+  private cachedBundle(
+    owner: string,
+    raw: RawSnapshot,
+    force = false,
+  ): Promise<ExplanationBundle> {
+    const version = this.version(raw),
+      cached = this.checked.get(owner);
+    if (!force && cached?.version === version) return cached.value;
+    const entry = { version, value: this.bundle(raw) };
+    this.checked.set(owner, entry);
+    void entry.value.then(
+      (bundle) => {
+        if (!checkedBundles.has(bundle) && this.checked.get(owner) === entry)
+          this.checked.delete(owner);
+      },
+      () => {
+        if (this.checked.get(owner) === entry) this.checked.delete(owner);
+      },
+    );
+    return entry.value;
+  }
+  private async snapshot(
+    owner: string,
+    raw: RawSnapshot,
+    force = false,
+  ): Promise<ExplanationSyncSnapshot> {
+    const metadata = this.metadata(raw);
     return {
       generation: metadata.generation,
-      bundle: await this.bundle(raw),
+      bundle: await this.cachedBundle(owner, raw, force),
       published: metadata.published,
       received: metadata.received,
     };
+  }
+  /** Explicit reads revalidate persisted content, including administrative or
+   * integrity checks. Only the controlled synchronization path reuses a cache. */
+  async read(owner: string): Promise<ExplanationSyncSnapshot> {
+    return this.snapshot(owner, await this.raw(owner), true);
+  }
+  async readForSync(owner: string): Promise<ExplanationSyncSnapshot> {
+    return this.snapshot(owner, await this.raw(owner));
+  }
+  async prepareSync(owner: string): Promise<ExplanationSyncSnapshot> {
+    const migrated = await this.migrateLocalSnapshot(owner);
+    return this.snapshot(owner, migrated.raw);
   }
   private async write(
     owner: string,
@@ -311,7 +471,7 @@ export class ExplanationSyncRepository {
     const checked = await parseExplanationBundle(incoming);
     for (let retry = 0; retry < 3; retry++) {
       const before = await this.raw(owner),
-        bundle = await this.bundle(before),
+        bundle = await this.cachedBundle(owner, before),
         next = mergeExplanationBundles(bundle, checked),
         metadata = this.metadata(before);
       const changed =
@@ -323,7 +483,7 @@ export class ExplanationSyncRepository {
       metadata.generation++;
       try {
         await this.write(owner, before, next, metadata);
-        notifyExplanationChange(false);
+        this.changed(owner);
         return true;
       } catch (e) {
         if (retry === 2 || !(e instanceof Error) || !/다른 창/.test(e.message))
@@ -333,38 +493,64 @@ export class ExplanationSyncRepository {
     return false;
   }
   async migrateLocal(owner: string): Promise<boolean> {
+    return (await this.migrateLocalSnapshot(owner)).changed;
+  }
+  private async migrateLocalSnapshot(
+    owner: string,
+  ): Promise<{ changed: boolean; raw: RawSnapshot }> {
     if (!owner || owner === "local")
       throw Error("해설을 연결할 계정이 필요합니다.");
     for (let retry = 0; retry < 3; retry++) {
-      const before = await this.raw(owner),
-        metadata = this.metadata(before);
-      if (before.claim !== undefined && before.claim !== owner) return false;
+      const before = await this.raw(owner);
+      if (before.claim !== undefined && before.claim !== owner)
+        return { changed: false, raw: before };
       const source = await this.raw("local"),
-        local = await this.bundle(source);
-      if (!local.legacy.length && !local.instructor.length) return false;
-      const existing = await this.bundle(before),
-        merged = mergeExplanationBundles(existing, local);
-      // The claim is permanent, but the same account can reconnect material
-      // imported while signed out later. Unchanged copies never schedule work.
+        sourceVersion = this.version(source),
+        destinationVersion =
+          this.version(before) + JSON.stringify(before.claim ?? null),
+        previous = this.migrations.get(owner);
+      if (
+        previous?.source === sourceVersion &&
+        previous.destination === destinationVersion
+      )
+        return { changed: false, raw: before };
+      const remember = () =>
+        this.migrations.set(owner, {
+          source: sourceVersion,
+          destination: destinationVersion,
+        });
+      const local = await this.cachedBundle("local", source);
+      if (!local.legacy.length && !local.instructor.length) {
+        remember();
+        return { changed: false, raw: before };
+      }
+      const existing = await this.cachedBundle(owner, before),
+        merged = mergeExplanationBundles(existing, local),
+        metadata = this.metadata(before);
+      // The existing permanent claim is unchanged. Later signed-out imports
+      // increment the source's real stored generation and re-enter this merge.
       const changed =
         canonicalExplanationValue(merged) !==
           canonicalExplanationValue(existing) ||
         (merged.instructor.length > 0 &&
           ((before.legacy as { packages?: unknown[] })?.packages?.length ?? 0) >
             0);
-      if (!changed && before.claim === owner) return false;
+      if (!changed && before.claim === owner) {
+        remember();
+        return { changed: false, raw: before };
+      }
       metadata.localMigrated = true;
       if (changed) metadata.generation++;
       try {
         await this.write(owner, before, merged, metadata, owner, source);
-        notifyExplanationChange(false);
-        return true;
+        if (changed) this.changed(owner);
+        return { changed: true, raw: await this.raw(owner) };
       } catch (e) {
         if (retry === 2 || !(e instanceof Error) || !/다른 창/.test(e.message))
           throw e;
       }
     }
-    return false;
+    throw Error("해설 연결을 저장하지 못했습니다.");
   }
   async markPublished(owner: string, fingerprint: string) {
     await this.mark(owner, "published", fingerprint);
@@ -398,6 +584,8 @@ export class ExplanationSyncRepository {
   async close() {
     const opening = this.opening;
     this.opening = undefined;
+    this.checked.clear();
+    this.migrations.clear();
     (await opening)?.close();
   }
 }

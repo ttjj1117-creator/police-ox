@@ -161,6 +161,51 @@ export class SyncAccountStore {
         reject(failure ?? tx.error ?? new Error("계정 기록 저장 실패"));
     });
   }
+  /** Restricted metadata commit: callers cannot supply or replace study state. */
+  async writeMetadata(
+    id: string,
+    meta: SyncLocal,
+    expectedGeneration: number,
+    expectedRevision: number,
+  ): Promise<SyncLocal> {
+    const db = await this.db;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("states", "readwrite"),
+        store = tx.objectStore("states"),
+        state = store.get(accountStateKey(id)),
+        metadata = store.get(syncMetaKey(id));
+      let ready = 0,
+        failure: Error | null = null;
+      const next = { ...meta, revision: expectedRevision + 1 };
+      const commit = () => {
+        if (++ready !== 2) return;
+        if (
+          (state.result?.generation ?? 0) !== expectedGeneration ||
+          (metadata.result?.revision ?? 0) !== expectedRevision
+        ) {
+          failure = new Error(
+            "다른 탭에서 계정 기록이 변경되었습니다. 다시 동기화하세요.",
+          );
+          tx.abort();
+          return;
+        }
+        try {
+          store.put(next, syncMetaKey(id));
+        } catch (error) {
+          failure = error instanceof Error ? error : new Error(String(error));
+          tx.abort();
+        }
+      };
+      state.onsuccess = commit;
+      metadata.onsuccess = commit;
+      tx.oncomplete = () => {
+        notifySyncLocal();
+        resolve(next);
+      };
+      tx.onerror = tx.onabort = () =>
+        reject(failure ?? tx.error ?? new Error("계정 기록 저장 실패"));
+    });
+  }
   async getValue<T>(key: string): Promise<T | null> {
     const db = await this.db;
     return new Promise((resolve, reject) => {
