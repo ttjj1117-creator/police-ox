@@ -181,6 +181,11 @@ test("PC의 해설을 새 태블릿 계정으로 공유하고 오프라인 수�
       expect(account.attempts).toHaveLength(1);
     }
   } finally {
-    await Promise.all([pc.close(), tablet.close(), other.close()]);
+    // Remove fake network handlers before tearing down worker-owning contexts.
+    // Pending routed requests must not race concurrent browser shutdown.
+    for (const context of [pc, tablet, other]) {
+      await context.unrouteAll({ behavior: "ignoreErrors" });
+      await context.close();
+    }
   }
 });

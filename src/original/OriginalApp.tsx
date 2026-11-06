@@ -2,12 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Asset, Block, Namespace, Question } from "./model";
 import {
   activeSession,
-  answer,
   defaultSelection,
   examAvailability,
   expire,
-  finish,
-  move,
   resultSummary,
   selectQuestions,
   startSession,
@@ -20,6 +17,7 @@ import type {
   OriginalState,
 } from "./engine";
 import { OriginalRepository, validateFullBackup } from "./storage";
+import { applyLearningCommand, type LearningCommand } from "./learning";
 import {
   exportOriginalPackages,
   isEligible,
@@ -308,7 +306,7 @@ export function OriginalApp({
     };
   }, [cloud.generation, cloud.ownerId, namespace]);
   async function mutate(
-    change: (draft: OriginalState) => void | Promise<void>,
+    change: ((draft: OriginalState) => void | Promise<void>) | LearningCommand,
     done?: () => void,
     fresh = false,
   ) {
@@ -317,29 +315,46 @@ export function OriginalApp({
     setBusy(true);
     setError("");
     const capturedNs = namespace;
+    const capturedOwnerScope = inkScope.current!.key;
+    const stillCurrent = () =>
+      nsRef.current === capturedNs &&
+      inkScope.current?.key === capturedOwnerScope;
     let base = envelopeRef.current;
     let draft: OriginalState | undefined;
     let changeComplete = false;
     try {
       if (fresh) {
         base = await repository.load(capturedNs);
-        if (nsRef.current !== capturedNs) return;
+        if (!stillCurrent()) return;
         install(base);
       }
-      draft = structuredClone(base.state);
-      await change(draft);
+      const learning = typeof change !== "function";
+      draft = learning
+        ? applyLearningCommand(base.state, change)
+        : structuredClone(base.state);
+      if (!learning) await change(draft);
       changeComplete = true;
-      const saved = await repository.save(capturedNs, draft, base.generation);
-      if (nsRef.current !== capturedNs) return;
-      install(saved);
+      const saved = learning
+        ? await repository.saveLearning(capturedNs, change, base.generation)
+        : await repository.save(capturedNs, draft, base.generation);
+      if (!stillCurrent()) return;
+      // The restricted transaction applied the same deterministic command to
+      // exactly this generation. Keep unchanged immutable view references.
+      install(
+        learning ? { generation: saved.generation, state: draft } : saved,
+      );
       failed.current = null;
       done?.();
     } catch (e) {
+      if (!stillCurrent()) return;
       const message = errorMessage(e);
       if (/다른 탭|충돌|generation/i.test(message)) {
         try {
-          install(await repository.load(capturedNs));
+          const reloaded = await repository.load(capturedNs);
+          if (!stillCurrent()) return;
+          install(reloaded);
         } catch {}
+        if (!stillCurrent()) return;
         failed.current = null;
         setError(message);
       } else if (changeComplete) {
@@ -358,6 +373,11 @@ export function OriginalApp({
   async function retrySave() {
     const f = failed.current;
     if (!f || lock.current) return;
+    const capturedNs = namespace,
+      capturedOwnerScope = inkScope.current!.key;
+    const stillCurrent = () =>
+      nsRef.current === capturedNs &&
+      inkScope.current?.key === capturedOwnerScope;
     lock.current = true;
     setBusy(true);
     try {
@@ -367,7 +387,8 @@ export function OriginalApp({
         Date.now() >= Date.parse(unsavedSession.deadlineAt)
       ) {
         // Deadline grading must use the last durable answers, never a failed draft.
-        const durable = await repository.load(namespace);
+        const durable = await repository.load(capturedNs);
+        if (!stillCurrent()) return;
         const savedSession = durable.state.sessions.find(
           (s) => s.id === unsavedSession.id,
         );
@@ -382,21 +403,27 @@ export function OriginalApp({
         }
         const recovered = structuredClone(durable.state);
         expire(recovered, Date.now());
-        install(
-          await repository.save(namespace, recovered, durable.generation),
+        const saved = await repository.save(
+          capturedNs,
+          recovered,
+          durable.generation,
         );
+        if (!stillCurrent()) return;
+        install(saved);
         failed.current = null;
         setError("");
         setSessionId(savedSession.id);
         setPage("result");
       } else {
-        install(await repository.save(namespace, f.state, f.generation));
+        const saved = await repository.save(capturedNs, f.state, f.generation);
+        if (!stillCurrent()) return;
+        install(saved);
         failed.current = null;
         setError("");
         f.done?.();
       }
     } catch (e) {
-      setError("저장되지 않음: " + errorMessage(e));
+      if (stillCurrent()) setError("저장되지 않음: " + errorMessage(e));
     } finally {
       lock.current = false;
       setBusy(false);
@@ -414,15 +441,10 @@ export function OriginalApp({
             void retrySave();
           }
         } else
-          void mutate(
-            (d) => {
-              expire(d, Date.now());
-            },
-            () => {
-              setSessionId(current.id);
-              setPage("result");
-            },
-          );
+          void mutate({ kind: "expire", at: Date.now() }, () => {
+            setSessionId(current.id);
+            setPage("result");
+          });
       }
     };
     const timer = setInterval(tick, 500);
@@ -868,8 +890,11 @@ export function OriginalApp({
         event.preventDefault();
         const n = Number(event.key) as 1 | 2 | 3 | 4;
         if (session.mode === "exam")
-          void mutate((d) => {
-            answer(d, session.id, n, Date.now());
+          void mutate({
+            kind: "answer",
+            sessionId: session.id,
+            response: n,
+            at: Date.now(),
           });
         else setChoice(n);
       }
@@ -1380,9 +1405,7 @@ export function OriginalApp({
                   }}
                   fontScale={state.settings.fontScale}
                   onFontScaleChange={(scale) => {
-                    void mutate((draft) => {
-                      draft.settings.fontScale = scale;
-                    });
+                    void mutate({ kind: "font", scale, at: Date.now() });
                   }}
                   busy={busy}
                   answerSheetOpen={answerSheetOpen}
@@ -1404,9 +1427,7 @@ export function OriginalApp({
                   onConfirm={async () => {
                     let completed = false;
                     await mutate(
-                      (d) => {
-                        finish(d, session.id, Date.now());
-                      },
+                      { kind: "finish", sessionId: session.id, at: Date.now() },
                       () => {
                         completed = true;
                         setExitRequest(false);
@@ -1434,13 +1455,11 @@ export function OriginalApp({
                           aria-label="다시 보기"
                           aria-pressed={!!state.marks[q.id]}
                           onClick={() =>
-                            mutate((d) => {
-                              if (
-                                session.mode === "exam" &&
-                                expire(d, Date.now())
-                              )
-                                return;
-                              d.marks[q.id] = !d.marks[q.id];
+                            mutate({
+                              kind: "mark",
+                              sessionId: session.id,
+                              questionId: q.id,
+                              at: Date.now(),
                             })
                           }
                           disabled={
@@ -1484,13 +1503,11 @@ export function OriginalApp({
                                   }
                                   onClick={() =>
                                     session.mode === "exam"
-                                      ? mutate((d) => {
-                                          answer(
-                                            d,
-                                            session.id,
-                                            c.number as 1 | 2 | 3 | 4,
-                                            Date.now(),
-                                          );
+                                      ? mutate({
+                                          kind: "answer",
+                                          sessionId: session.id,
+                                          response: c.number as 1 | 2 | 3 | 4,
+                                          at: Date.now(),
                                         })
                                       : setChoice(c.number as 1 | 2 | 3 | 4)
                                   }
@@ -1539,8 +1556,11 @@ export function OriginalApp({
                               session.status !== "active"
                             }
                             onClick={() =>
-                              mutate((d) => {
-                                answer(d, session.id, choice!, Date.now());
+                              mutate({
+                                kind: "answer",
+                                sessionId: session.id,
+                                response: choice!,
+                                at: Date.now(),
                               })
                             }
                           >
@@ -1549,8 +1569,11 @@ export function OriginalApp({
                           <button
                             disabled={busy || session.status !== "active"}
                             onClick={() =>
-                              mutate((d) => {
-                                answer(d, session.id, "unknown", Date.now());
+                              mutate({
+                                kind: "answer",
+                                sessionId: session.id,
+                                response: "unknown",
+                                at: Date.now(),
                               })
                             }
                           >
@@ -1569,8 +1592,11 @@ export function OriginalApp({
                               busy || session.status !== "active" || expired
                             }
                             onClick={() =>
-                              mutate((d) => {
-                                answer(d, session.id, "unknown", Date.now());
+                              mutate({
+                                kind: "answer",
+                                sessionId: session.id,
+                                response: "unknown",
+                                at: Date.now(),
                               })
                             }
                           >
@@ -1582,15 +1608,11 @@ export function OriginalApp({
                               busy || session.status !== "active" || expired
                             }
                             onClick={() =>
-                              mutate((d) => {
-                                const s = d.sessions.find(
-                                  (x) => x.id === session.id,
-                                )!;
-                                if (
-                                  !expire(d, Date.now()) &&
-                                  s.status === "active"
-                                )
-                                  s.review[q.id] = !s.review[q.id];
+                              mutate({
+                                kind: "review",
+                                sessionId: session.id,
+                                questionId: q.id,
+                                at: Date.now(),
                               })
                             }
                           >
@@ -1614,8 +1636,11 @@ export function OriginalApp({
                           expired
                         }
                         onClick={() =>
-                          mutate((d) => {
-                            move(d, session.id, session.index - 1, Date.now());
+                          mutate({
+                            kind: "move",
+                            sessionId: session.id,
+                            index: session.index - 1,
+                            at: Date.now(),
                           })
                         }
                       >
@@ -1634,8 +1659,11 @@ export function OriginalApp({
                           (session.mode !== "exam" && !attempted)
                         }
                         onClick={() =>
-                          mutate((d) => {
-                            move(d, session.id, session.index + 1, Date.now());
+                          mutate({
+                            kind: "move",
+                            sessionId: session.id,
+                            index: session.index + 1,
+                            at: Date.now(),
                           })
                         }
                       >
@@ -1731,8 +1759,11 @@ export function OriginalApp({
                                 }
                                 onClick={() => {
                                   setAnswerSheetOpen(false);
-                                  void mutate((d) => {
-                                    move(d, session.id, i, Date.now());
+                                  void mutate({
+                                    kind: "move",
+                                    sessionId: session.id,
+                                    index: i,
+                                    at: Date.now(),
                                   });
                                 }}
                               >
@@ -1791,8 +1822,10 @@ export function OriginalApp({
                     value={state.settings.fontScale}
                     disabled={busy}
                     onChange={(e) =>
-                      mutate((d) => {
-                        d.settings.fontScale = Number(e.target.value);
+                      mutate({
+                        kind: "font",
+                        scale: Number(e.target.value),
+                        at: Date.now(),
                       })
                     }
                   >

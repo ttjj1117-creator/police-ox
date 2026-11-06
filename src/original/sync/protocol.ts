@@ -139,16 +139,19 @@ export function buildEvents(
         baseCursor: context.baseCursor,
         clock: context.clock ?? null,
       };
-  const oldQuestions = new Map(previous.data.questions.map((q) => [q.id, q]));
-  const freshQuestions = new Map(next.data.questions.map((q) => [q.id, q]));
-  const oldPackages = new Set(previous.data.packages.map((p) => p.packageId)),
-    freshPackages = new Set(next.data.packages.map((p) => p.packageId));
+  // Reference equality is used only for genuinely shared immutable data.
+  // Independent/caller-supplied banks still take the complete canonical diff.
   const oldRemoved = new Set(previous.removedQuestionIds ?? []),
     freshRemoved = new Set(next.removedQuestionIds ?? []);
   if (
-    canonical(previous.data) !== canonical(next.data) ||
+    (previous.data !== next.data &&
+      canonical(previous.data) !== canonical(next.data)) ||
     canonical([...oldRemoved].sort()) !== canonical([...freshRemoved].sort())
   ) {
+    const oldQuestions = new Map(previous.data.questions.map((q) => [q.id, q]));
+    const freshQuestions = new Map(next.data.questions.map((q) => [q.id, q]));
+    const oldPackages = new Set(previous.data.packages.map((p) => p.packageId)),
+      freshPackages = new Set(next.data.packages.map((p) => p.packageId));
     events.push({
       ...common(context, sequence++),
       kind: "bank",
@@ -752,10 +755,17 @@ export function reconcileOrder(
   original: OriginalState,
   existing: SyncProjection,
 ): ApplyResult {
-  const state = structuredClone(original),
+  // Ordering changes only the attempts array and projection, never the bank,
+  // session snapshots, assets, marks or settings. Preserve those immutable trees.
+  const state = { ...original, attempts: [...original.attempts] },
     projection = structuredClone(existing);
   orderAttempts(state, projection);
-  return { state, projection };
+  const unchanged =
+    state.attempts.length === original.attempts.length &&
+    state.attempts.every(
+      (attempt, index) => attempt === original.attempts[index],
+    );
+  return { state: unchanged ? original : state, projection };
 }
 
 /** Migration preview only. Local changes already live in the transactional
@@ -814,6 +824,10 @@ export function applyEvents(
   existing: SyncProjection,
   received: ReceivedEvent[],
 ): ApplyResult {
+  // Empty pulls still reconcile every causal ordering/conflict rule, but need
+  // no deep copy of unrelated question banks or historical snapshots.
+  if (!received.length && !existing.deferred.length)
+    return reconcileOrder(original, existing);
   let state = structuredClone(original),
     projection = structuredClone(existing);
   const queue = [
