@@ -227,7 +227,7 @@ async function login(page: Page, email = "owner@example.com") {
     .click();
   await page.getByLabel("이메일", { exact: true }).fill(email);
   await page
-    .getByRole("button", { name: "로그인 메일 받기", exact: true })
+    .getByRole("button", { name: "인증번호 받기", exact: true })
     .click();
   await page.getByLabel("이메일 인증번호", { exact: true }).fill("123456");
   await page.getByRole("button", { name: "로그인", exact: true }).click();

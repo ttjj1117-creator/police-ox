@@ -9,7 +9,7 @@ const project = "https://sync.test",
 const owner = `${project}|${uid}`,
   email = "callback-fixture@example.com";
 const config = { url: project, key: "sb_publishable_TEST_ONLY" };
-function callback(expired = false) {
+function callback(expired = false, type = "magiclink") {
   const encode = (v: unknown) =>
     Buffer.from(JSON.stringify(v)).toString("base64url");
   const access = `${encode({ alg: "ES256" })}.${encode({ iss: `${project}/auth/v1`, sub: uid, exp: Math.floor(Date.now() / 1000) + (expired ? -60 : 3600) })}.synthetic-signature`;
@@ -17,7 +17,7 @@ function callback(expired = false) {
   return {
     access,
     refresh,
-    hash: `#${new URLSearchParams({ access_token: access, refresh_token: refresh, token_type: "bearer", expires_in: "3600", type: "magiclink" })}`,
+    hash: `#${new URLSearchParams({ access_token: access, refresh_token: refresh, token_type: "bearer", expires_in: "3600", type })}`,
   };
 }
 function anonymousState() {
@@ -196,6 +196,23 @@ test("mock-only magic link: StrictMode boot cleans URL, verifies once, and keeps
   expect(consoleMessages.join("\n")).not.toContain(link.refresh);
 });
 
+test("mock-only signup confirmation: verifies and opens the account screen", async ({
+  page,
+  context,
+}) => {
+  const link = callback(false, "signup"),
+    network = await fakeNetwork(context, link.access);
+  await seed(page);
+  await page.goto(`/?view=original&mode=real&auth=callback${link.hash}`);
+  await expect(
+    page.getByRole("heading", { name: email, exact: true }),
+  ).toBeVisible();
+  expect(new URL(page.url()).hash).toBe("");
+  expect(network.users).toBe(1);
+  expect(network.forbidden).toEqual([]);
+  expect((await records(page)).auth.user).toEqual({ id: uid, email });
+});
+
 test("mock-only expired link: startup stays on the account screen, cleans the URL, and saves no credentials", async ({
   page,
   context,
@@ -209,7 +226,7 @@ test("mock-only expired link: startup stays on the account screen, cleans the UR
   ).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("만료");
   await expect(
-    page.getByRole("button", { name: "로그인 메일 받기", exact: true }),
+    page.getByRole("button", { name: "인증번호 받기", exact: true }),
   ).toBeVisible();
   expect(new URL(page.url()).hash).toBe("");
   expect(page.url()).not.toContain("access_token");

@@ -93,13 +93,15 @@ export class SupabaseTransport {
         /bank_version_conflict|mark_version_conflict/.test(detail);
       const text = versionConflict
         ? "다른 기기에서 자료나 표시가 변경되었습니다. 최신 내용을 확인한 뒤 반영할 변경을 선택하세요."
-        : /otp_expired|otp_disabled/.test(code)
-          ? "인증번호가 만료되었거나 올바르지 않습니다. 새 번호를 받아 다시 입력하세요."
-          : response.status === 429
-            ? "요청이 너무 잦습니다. 잠시 후 다시 시도하세요."
-            : response.status === 401 || response.status === 403
-              ? "로그인을 다시 확인하세요. 이 기기의 기록은 보관되어 있습니다."
-              : detail || `서버 요청 실패 (${response.status})`;
+        : code === "otp_expired"
+          ? "인증번호가 올바르지 않거나 만료되었습니다. 번호를 확인하고, 만료된 경우 새 번호를 받으세요."
+          : code === "otp_disabled"
+            ? "인증번호 로그인을 사용할 수 없습니다. 동기화 서버의 로그인 설정을 확인하세요."
+            : response.status === 429
+              ? "요청이 너무 잦습니다. 잠시 후 다시 시도하세요."
+              : response.status === 401 || response.status === 403
+                ? "로그인을 다시 확인하세요. 이 기기의 기록은 보관되어 있습니다."
+                : detail || `서버 요청 실패 (${response.status})`;
       throw new CloudError(
         text,
         response.status,
