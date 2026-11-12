@@ -11,7 +11,7 @@ export type AuthRedirect =
   | { kind: "error"; message: string }
   | { kind: "session"; tokens: AuthLinkTokens };
 const incomplete =
-  "로그인 링크가 불완전하거나 올바르지 않습니다. 이메일에서 새 링크를 요청하세요.";
+  "로그인 링크가 불완전하거나 올바르지 않습니다. 이 앱에서 새 로그인 메일을 요청하세요.";
 const expired =
   "로그인 링크가 만료되었거나 이미 사용되었습니다. 새 로그인 메일을 요청하세요.";
 const authKeys = [

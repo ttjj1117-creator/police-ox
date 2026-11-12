@@ -194,11 +194,7 @@ export class CloudController {
         ? undefined
         : authReturnUrl(window.location.href),
     );
-    this.emit({
-      error: "",
-      message:
-        "로그인 메일을 보냈습니다. 메일의 로그인 링크를 이 앱을 사용할 브라우저에서 여세요. 인증번호가 함께 온 경우 번호로도 로그인할 수 있습니다.",
-    });
+    this.emit({ error: "", message: "" });
   }
   async verify(email: string, code: string) {
     if (!this.transport) throw new Error("동기화 연결 설정이 필요합니다.");

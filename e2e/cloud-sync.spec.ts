@@ -16,6 +16,7 @@ import type { WireEvent } from "../src/original/sync/types";
 const UID = "11111111-1111-4111-8111-111111111111",
   OTHER = "22222222-2222-4222-8222-222222222222";
 const OWNER = `https://sync.test|${UID}`;
+const OTP = "01234567";
 /** A deliberately fake service. This exercises real fetch/IDB/UI boundaries,
  * not Supabase RLS or real email delivery. See supabase/rls-tests.sql for that. */
 class FakeCloud {
@@ -27,6 +28,7 @@ class FakeCloud {
   loseNextPushResponse = false;
   paused = false;
   refreshRequests = 0;
+  rateLimitOtp = false;
   async attach(context: BrowserContext) {
     await context.route("https://sync.test/**", async (route) => {
       const request = route.request(),
@@ -49,7 +51,10 @@ class FakeCloud {
       const body = () => JSON.parse(request.postData() ?? "{}");
       const uid =
         request.headers().authorization?.replace("Bearer access:", "") ?? "";
-      if (url.pathname === "/auth/v1/otp") return json({});
+      if (url.pathname === "/auth/v1/otp")
+        return this.rateLimitOtp
+          ? json({ error_code: "over_email_send_rate_limit" }, 429)
+          : json({});
       if (
         url.pathname === "/auth/v1/verify" ||
         url.pathname === "/auth/v1/token"
@@ -59,6 +64,11 @@ class FakeCloud {
           id = String(input.email ?? input.refresh_token).includes("other")
             ? OTHER
             : UID;
+        if (
+          url.pathname === "/auth/v1/verify" &&
+          (input.token !== OTP || input.type !== "email")
+        )
+          return json({ error_code: "otp_expired" }, 403);
         return json({
           access_token: `access:${id}`,
           refresh_token: id === OTHER ? "other-refresh" : "own-refresh",
@@ -220,7 +230,7 @@ async function nav(page: Page, label: string) {
   if (!(await target.isVisible())) await menu.click();
   await target.click();
 }
-async function login(page: Page, email = "owner@example.com") {
+async function openLogin(page: Page, email: string) {
   page.setDefaultTimeout(10000);
   await page.goto("/?view=original&mode=real");
   await nav(page, "계정·기기 동기화");
@@ -237,14 +247,17 @@ async function login(page: Page, email = "owner@example.com") {
     .getByRole("button", { name: "공개 연결값 저장", exact: true })
     .click();
   await page.getByLabel("이메일", { exact: true }).fill(email);
+}
+async function login(page: Page, email = "owner@example.com") {
+  await openLogin(page, email);
   await page
-    .getByRole("button", { name: "로그인 메일 받기", exact: true })
+    .getByRole("button", { name: "인증번호 받기", exact: true })
     .click();
   await expect(
     page.getByLabel("이메일 인증번호", { exact: true }),
     await page.locator("main").innerText(),
   ).toBeVisible();
-  await page.getByLabel("이메일 인증번호", { exact: true }).fill("123456");
+  await page.getByLabel("이메일 인증번호", { exact: true }).fill(OTP);
   await page.getByRole("button", { name: "로그인", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "원문 기출 학습", exact: true }),
@@ -329,6 +342,48 @@ async function uploadBackup(page: Page, existing?: any) {
   await sync(page);
   return backup;
 }
+test("fake service: 틀린 인증번호와 재요청 제한 안내 후 받은 번호로 로그인", async ({
+  page,
+}) => {
+  const fake = new FakeCloud();
+  await fake.attach(page.context());
+  await openLogin(page, "owner@example.com");
+  const requestCode = page.getByRole("button", {
+    name: "인증번호 받기",
+    exact: true,
+  });
+  const input = page.getByLabel("이메일 인증번호", { exact: true });
+  const submit = page.getByRole("button", { name: "로그인", exact: true });
+  await requestCode.click();
+  await expect(
+    page.getByText("이메일로 받은 인증번호를 입력하세요", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("처음 가입하거나 아직 이메일을 확인하지 않았다면"),
+  ).toContainText("메일의 확인 링크를 이 앱을 사용할 브라우저에서 여세요.");
+  await input.fill("01234568");
+  await submit.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "인증번호가 올바르지 않거나 만료되었습니다.",
+  );
+
+  fake.rateLimitOtp = true;
+  await requestCode.click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "요청이 너무 잦습니다. 잠시 후 다시 시도하세요.",
+  );
+  await expect(input).toBeVisible();
+  await input.fill(OTP);
+  await submit.click();
+  await expect(
+    page.getByRole("heading", { name: "원문 기출 학습", exact: true }),
+  ).toBeVisible();
+  await nav(page, "계정·기기 동기화");
+  await expect(
+    page.getByRole("heading", { name: "owner@example.com", exact: true }),
+  ).toBeVisible();
+});
+
 test("fake service: 두 독립 기기의 문제은행·완료 기록과 재시도 멱등성, 계정 경계", async ({
   browser,
 }) => {
@@ -394,9 +449,9 @@ test("fake service: 두 독립 기기의 문제은행·완료 기록과 재시�
   await nav(b, "계정·기기 동기화");
   await b.getByLabel("이메일", { exact: true }).fill("other@example.com");
   await b
-    .getByRole("button", { name: "로그인 메일 받기", exact: true })
+    .getByRole("button", { name: "인증번호 받기", exact: true })
     .click();
-  await b.getByLabel("이메일 인증번호", { exact: true }).fill("123456");
+  await b.getByLabel("이메일 인증번호", { exact: true }).fill(OTP);
   await b.getByRole("button", { name: "로그인", exact: true }).click();
   await expect(
     b.getByRole("heading", { name: "원문 기출 학습", exact: true }),
@@ -712,8 +767,8 @@ test("fake service: 임시 필기는 같은 계정 인증 갱신·동기화에 �
       await expect(page.getByRole("heading", { name: "원문 기출 학습", exact: true })).toBeVisible();
       await nav(page, "계정·기기 동기화");
       await page.getByLabel("이메일", { exact: true }).fill(email);
-      await page.getByRole("button", { name: "로그인 메일 받기", exact: true }).click();
-      await page.getByLabel("이메일 인증번호", { exact: true }).fill("123456");
+      await page.getByRole("button", { name: "인증번호 받기", exact: true }).click();
+      await page.getByLabel("이메일 인증번호", { exact: true }).fill(OTP);
       await page.getByRole("button", { name: "로그인", exact: true }).click();
       await expect(page.getByRole("heading", { name: "원문 기출 학습", exact: true })).toBeVisible();
       await sync(page);
