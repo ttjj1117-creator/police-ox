@@ -198,7 +198,16 @@ test("mock OTP seeds a new account's original bank and displays its shared instr
   expect(initial?.sessions).toEqual([]);
   expect(initial?.marks).toEqual({});
   await page.getByRole("button", { name: "일반 학습", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "연도", exact: true })
+    .selectOption(String(question.source.year));
+  await page
+    .getByRole("combobox", { name: "회차", exact: true })
+    .selectOption(question.source.round);
   await page.getByRole("button", { name: "시작하기", exact: true }).click();
+  await expect(page.locator(".original-question-meta")).toContainText(
+    `원문 ${question.source.questionNumber}번`,
+  );
   const explanation = page.locator(".instructor-explanation-panel");
   await expect(explanation).toHaveCount(0);
   await page
