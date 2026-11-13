@@ -18,5 +18,5 @@ export async function syncExplanationLibraries(
 ): Promise<ExplanationSyncCounts> {
   if (options.repository || options.transport || typeof Worker === "undefined")
     return syncExplanationLibrariesCore(owner, auth, config, options);
-  return runExplanationSyncWorker(owner, auth, config, options.current);
+  return runExplanationSyncWorker(owner, auth, config, options.current, options.shared);
 }

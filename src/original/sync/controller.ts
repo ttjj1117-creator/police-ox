@@ -32,6 +32,7 @@ import {
   cancelExplanationSyncWorker,
 } from "../explanations/sync-runner";
 import { usableClock } from "./clock";
+import { parseSharedQuestions, SharedLibrary } from "./shared-library";
 import {
   authReturnUrl,
   captureAuthRedirect,
@@ -88,6 +89,7 @@ export class CloudController {
   private initialization: Promise<void> | null = null;
   private refreshPromise: Promise<AuthSession> | null = null;
   private signingOut = false;
+  private sharedLibraryEnabled = false;
   constructor(
     store = new SyncAccountStore(),
     transport?: SupabaseTransport,
@@ -116,6 +118,7 @@ export class CloudController {
   }
   private async initialize(env: Record<string, unknown>) {
     try {
+      this.sharedLibraryEnabled = env.VITE_SHARED_LIBRARY_ENABLED === "true";
       const config =
         this.transport?.config ??
         (await this.store.getValue<CloudConfig>("sync:public-config")) ??
@@ -453,6 +456,49 @@ export class CloudController {
       }
     }
   }
+  private canSeedShared(snapshot: AccountSnapshot): boolean {
+    const historical = new Set(snapshot.state.removedQuestionIds);
+    return (
+      !snapshot.meta.sharedLibraryRelease &&
+      !snapshot.meta.projection.bankVersion &&
+      !snapshot.meta.outbox.some((event) => event.kind === "bank") &&
+      !activeSession(snapshot.state) &&
+      !snapshot.state.data.packages.length &&
+      snapshot.state.data.questions.every((question) => historical.has(question.id))
+    );
+  }
+  private async prepareSharedLibrary(owner: string, auth: AuthSession, config: CloudConfig) {
+    if (!this.sharedLibraryEnabled) return;
+    const current = () =>
+      this.enabled && !this.signingOut && navigator.onLine && this.view.ownerId === owner;
+    if (!current()) return;
+    const before = await this.store.read(owner);
+    if (!current() || !this.canSeedShared(before)) return;
+    const source = new SharedLibrary(config, auth);
+    const manifest = await source.getManifest();
+    if (!manifest || !current()) return;
+    const data = await parseSharedQuestions(await source.getPart(manifest, "questions"));
+    const sharedIds = new Set(data.questions.map((question) => question.id));
+    await this.commit(owner, async (snapshot) => {
+      if (!current() || !this.canSeedShared(snapshot)) return snapshot;
+      const removed = new Set(snapshot.meta.projection.questionTombstones);
+      const state: OriginalState = {
+        ...snapshot.state,
+        data: mergeMigrationBank(snapshot.state.data, data, snapshot.meta.projection),
+        removedQuestionIds: (snapshot.state.removedQuestionIds ?? []).filter(
+          (id) => !sharedIds.has(id) || removed.has(id),
+        ),
+      };
+      await validateOriginalState(state, "real");
+      if (!current()) return snapshot;
+      return {
+        ...snapshot,
+        state,
+        meta: { ...snapshot.meta, sharedLibraryRelease: manifest.releaseId },
+      };
+    });
+    if (current()) await this.reload();
+  }
   async sync(): Promise<void> {
     if (this.running) return this.running;
     if (!this.enabled || !this.transport || !this.view.ownerId) return;
@@ -476,6 +522,7 @@ export class CloudController {
       const auth = await this.auth(),
         transport = this.transport!;
       requireOnline();
+      let sharedError = "";
       this.emit({ explanationMessage: "해설 동기화 중", explanationError: "" });
       // Libraries have their own immutable objects and merge rules. A question
       // conflict must not stop explanation delivery, or vice versa.
@@ -490,6 +537,7 @@ export class CloudController {
             requireOnline();
             return true;
           },
+          shared: this.sharedLibraryEnabled,
         },
       )
         .then((count) => {
@@ -521,6 +569,13 @@ export class CloudController {
         );
       };
       await pullAll();
+      if (this.sharedLibraryEnabled) {
+        try {
+          await this.prepareSharedLibrary(owner, auth, transport.config);
+        } catch (error) {
+          sharedError = message(error);
+        }
+      }
       for (let i = 0; i < 100; i++) {
         const snapshot = await this.store.read(owner),
           event = nextSendable(snapshot.meta);
@@ -565,7 +620,10 @@ export class CloudController {
       });
       await this.reload();
       this.emit({
-        message: this.view.pending
+        error: sharedError,
+        message: sharedError
+          ? "공유 자료 다운로드를 다시 시도하세요."
+          : this.view.pending
           ? `이 기기에 저장됨 · 전송 대기 ${this.view.pending}건`
           : this.view.meta?.projection.deferred.length
             ? `원격 자료 ${this.view.meta.projection.deferred.length}건 대기 · 학습 종료 후 반영`

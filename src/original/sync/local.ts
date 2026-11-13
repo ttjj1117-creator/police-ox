@@ -14,6 +14,7 @@ export interface SyncLocal {
   clock: ClockSample | null;
   lastSuccess: string | null;
   failures: Record<string, string>;
+  sharedLibraryRelease?: string;
 }
 export const accountStateKey = (id: string) => `original:real:user:${id}`;
 export const syncMetaKey = (id: string) => `sync:real:user:${id}`;

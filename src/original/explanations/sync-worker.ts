@@ -92,6 +92,8 @@ async function run(
           fetcher(message.id),
         ),
         current: () => current(message.id),
+        shared: message.shared,
+        sharedFetch: fetcher(message.id),
       },
     );
     scope.postMessage({ type: "result", id: message.id, counts });

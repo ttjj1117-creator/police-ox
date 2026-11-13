@@ -40,6 +40,9 @@ import { PackageManager } from "./PackageManager";
 import { applyPackageDeletion } from "./deletion";
 import { LearningStatus } from "./LearningStatus";
 import { ReviewRecommendations } from "./ReviewRecommendations";
+import { ReportDialog, ReportReview } from "./reports/ReportReview";
+import { reportScope, type QuestionReport } from "./reports/repository";
+import { useQuestionReports } from "./reports/useQuestionReports";
 import {
   aggregateLearning,
   DEFAULT_REVIEW_LIMIT,
@@ -85,6 +88,7 @@ type Page =
   | "round"
   | "exam"
   | "review"
+  | "reports"
   | "evidence"
   | "progress"
   | "cloud"
@@ -105,6 +109,7 @@ const names: [Page, string][] = [
   ["round", "회차별 풀이"],
   ["exam", "모의고사"],
   ["review", "오답 복습"],
+  ["reports", "신고 문항"],
   ["evidence", "근거·출제 빈도"],
   ["progress", "학습 현황"],
   ["cloud", "계정·기기 동기화"],
@@ -129,9 +134,20 @@ export function OriginalApp({
       ? "demo"
       : "real",
   );
-  const [envelope, setEnvelope] = useState<Envelope | null>(null);
   const cloud = useCloudSync(namespace);
   const oxCloud = useOxSync(namespace);
+  const reportAccountScope = reportScope(namespace, cloud.ownerId);
+  const [envelope, setEnvelope] = useState<
+    (Envelope & { scope: string }) | null
+  >(null);
+  const questionReports = useQuestionReports(reportAccountScope, cloud.ready);
+  const reportById = useMemo(
+    () =>
+      new Map(
+        questionReports.reports.map((report) => [report.questionId, report]),
+      ),
+    [questionReports.reports],
+  );
   // The app owns temporary strokes across question/provider and home remounts.
   // A true account/area transition replaces the memory before children read it;
   // token refreshes and sync generations keep the same owner and memory.
@@ -200,6 +216,10 @@ export function OriginalApp({
     ...defaultReviewScope,
   });
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [reportEditor, setReportEditor] = useState<{
+    context: string;
+    question: Question;
+  } | null>(null);
   useEffect(() => {
     setAnswerSheetOpen(false);
   }, [page, sessionId]);
@@ -231,7 +251,7 @@ export function OriginalApp({
           savedSession.id,
         );
     envelopeRef.current = e;
-    setEnvelope(e);
+    setEnvelope({ ...e, scope: reportAccountScope });
   }
   useEffect(() => {
     if (!cloud.ready) return;
@@ -456,7 +476,8 @@ export function OriginalApp({
       document.removeEventListener("visibilitychange", tick);
     };
   }, [namespace]);
-  const state = envelope?.state;
+  const state =
+    envelope?.scope === reportAccountScope ? envelope.state : undefined;
   const homeAnalytics = useMemo(
     () =>
       state
@@ -501,6 +522,14 @@ export function OriginalApp({
     setPwaSessionActive(!!active);
   }, [!!active]);
   const q = session?.questions[session.index];
+  const reportContext = JSON.stringify([
+    reportAccountScope,
+    page,
+    sessionId,
+    q?.id,
+  ]);
+  const editingReport =
+    reportEditor?.context === reportContext ? reportEditor : null;
   const inkContentVersion = useMemo(
     () =>
       q
@@ -519,11 +548,13 @@ export function OriginalApp({
     [q, session?.assets],
   );
   useEffect(() => {
-    if (page === "quiz") window.scrollTo({ top: 0, left: 0 });
+    if (page === "quiz" || page === "reports")
+      window.scrollTo({ top: 0, left: 0 });
   }, [page, sessionId, session?.index]);
   useEffect(() => {
     setExitRequest(false);
-  }, [page, sessionId, q?.id, session?.status]);
+    setReportEditor(null);
+  }, [page, sessionId, q?.id, session?.status, reportAccountScope]);
   const sessionAttempts = useMemo(() => {
     const index = new Map<string, Attempt>();
     if (!session || !state) return index;
@@ -868,6 +899,7 @@ export function OriginalApp({
       if (
         page !== "quiz" ||
         exitRequest ||
+        editingReport ||
         !session ||
         session.status !== "active" ||
         busy ||
@@ -910,6 +942,7 @@ export function OriginalApp({
     namespace,
     answerSheetOpen,
     exitRequest,
+    editingReport,
   ]);
   if (!state)
     return (
@@ -961,6 +994,24 @@ export function OriginalApp({
     ...listedQuestions.flatMap(referencedAssets),
     ...state.data.packages.flatMap((pkg) => pkg.assets.map((a) => a.assetId)),
   ]);
+  function openReport(question: Question) {
+    setReportEditor({
+      context: reportContext,
+      question,
+    });
+  }
+  const reportDialog = editingReport && (
+    <ReportDialog
+      question={editingReport.question}
+      previous={reportById.get(editingReport.question.id)}
+      onChange={questionReports.change}
+      onClose={() =>
+        setReportEditor((current) =>
+          current === editingReport ? null : current,
+        )
+      }
+    />
+  );
   return (
     <div
       className={`original-app${page === "quiz" ? " is-quiz" : ""}`}
@@ -1020,7 +1071,7 @@ export function OriginalApp({
               onClick={() => navigate(p)}
             >
               <span aria-hidden="true">
-                {["⌂", "▤", "▦", "◷", "↻", "▥", "☁", "⚙"][i]}
+                {["⌂", "▤", "▦", "◷", "↻", "⚑", "▥", "▥", "☁", "⚙"][i]}
               </span>
               {label}
             </button>
@@ -1201,6 +1252,11 @@ export function OriginalApp({
                   <p>오답·모르겠음·미응답을 다시 풀어보세요.</p>
                 </button>
               </div>
+              <div className="original-report-shortcut">
+                <button type="button" onClick={() => navigate("reports")}>
+                  신고 문항 보기 →
+                </button>
+              </div>
               {state.sessions.some((s) => s.status !== "active") && (
                 <section>
                   <h2>최근 학습 기록</h2>
@@ -1277,6 +1333,23 @@ export function OriginalApp({
               busy={busy}
               onBackup={exportBackup}
               oxStatus={oxCloud}
+            />
+          )}
+          {page === "reports" && (
+            <ReportReview
+              key={reportAccountScope}
+              {...questionReports}
+              examActive={active?.mode === "exam"}
+              renderQuestion={(report) => (
+                <ReportedQuestion
+                  report={report}
+                  state={state}
+                  namespace={namespace}
+                  readingFlow={readingFlow}
+                  explanations={explanations}
+                  instructor={instructorExplanations}
+                />
+              )}
             />
           )}
           {["study", "round", "exam", "review"].includes(page) && (
@@ -1412,6 +1485,7 @@ export function OriginalApp({
                   onToggleAnswers={() => setAnswerSheetOpen((value) => !value)}
                   menuItems={[
                     ["home", "학습 홈"],
+                    ["reports", "신고 문항"],
                     ["progress", "학습 현황"],
                     ["cloud", "계정·기기 동기화"],
                     ["settings", "데이터·설정"],
@@ -1420,6 +1494,7 @@ export function OriginalApp({
                     onSelect: () => navigate(target as Page),
                   }))}
                 />
+                {reportDialog}
                 <QuizExitDialog
                   open={exitRequest && session.status === "active"}
                   exam={session.mode === "exam"}
@@ -1451,25 +1526,32 @@ export function OriginalApp({
                             ? "기능 확인용 시연"
                             : `${q.source.year}년 ${q.source.round}차 · 원문 ${q.source.questionNumber}번`}
                         </span>
-                        <button
-                          aria-label="다시 보기"
-                          aria-pressed={!!state.marks[q.id]}
-                          onClick={() =>
-                            mutate({
-                              kind: "mark",
-                              sessionId: session.id,
-                              questionId: q.id,
-                              at: Date.now(),
-                            })
-                          }
-                          disabled={
-                            busy ||
-                            (session.mode === "exam" &&
-                              (expired || session.status !== "active"))
-                          }
-                        >
-                          {state.marks[q.id] ? "★ 다시 보기" : "☆ 다시 보기"}
-                        </button>
+                        <div className="original-question-controls">
+                          <ReportButton
+                            report={reportById.get(q.id)}
+                            disabled={busy || questionReports.loading}
+                            onOpen={() => openReport(q)}
+                          />
+                          <button
+                            aria-label="다시 보기"
+                            aria-pressed={!!state.marks[q.id]}
+                            onClick={() =>
+                              mutate({
+                                kind: "mark",
+                                sessionId: session.id,
+                                questionId: q.id,
+                                at: Date.now(),
+                              })
+                            }
+                            disabled={
+                              busy ||
+                              (session.mode === "exam" &&
+                                (expired || session.status !== "active"))
+                            }
+                          >
+                            {state.marks[q.id] ? "★ 다시 보기" : "☆ 다시 보기"}
+                          </button>
+                        </div>
                       </div>
                       <QuestionPaper>
                         <Blocks
@@ -1791,21 +1873,31 @@ export function OriginalApp({
             </QuizInputGuard>
           )}
           {page === "result" && session && (
-            <Result
-              state={state}
-              session={session}
-              explanationPackages={explanations.packages}
-              explanationState={explanations}
-              instructorPackages={instructorExplanations.packages}
-              instructorState={instructorExplanations}
-              namespace={namespace}
-              onHome={() => navigate("home")}
-              onRetry={() => {
-                const qs = weakQuestions(state, session);
-                void begin("study", qs);
-              }}
-              busy={busy}
-            />
+            <>
+              {reportDialog}
+              <Result
+                state={state}
+                session={session}
+                explanationPackages={explanations.packages}
+                explanationState={explanations}
+                instructorPackages={instructorExplanations.packages}
+                instructorState={instructorExplanations}
+                namespace={namespace}
+                onHome={() => navigate("home")}
+                onRetry={() => {
+                  const qs = weakQuestions(state, session);
+                  void begin("study", qs);
+                }}
+                renderReportButton={(question) => (
+                  <ReportButton
+                    report={reportById.get(question.id)}
+                    disabled={questionReports.loading}
+                    onOpen={() => openReport(question)}
+                  />
+                )}
+                busy={busy}
+              />
+            </>
           )}
           {page === "settings" && (
             <>
@@ -2433,6 +2525,136 @@ function Blocks({
     </>
   );
 }
+
+function ReportButton({
+  report,
+  disabled,
+  onOpen,
+}: {
+  report?: QuestionReport;
+  disabled?: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="original-report-flag"
+      data-reported={!!report}
+      aria-haspopup="dialog"
+      title={
+        report
+          ? report.resolved
+            ? "검토 완료된 신고"
+            : "저장된 신고"
+          : undefined
+      }
+      disabled={disabled}
+      onClick={onOpen}
+    >
+      {report && <span aria-hidden="true">⚑ </span>}
+      오류 신고
+    </button>
+  );
+}
+
+function ReportedQuestion({
+  report,
+  state,
+  namespace,
+  readingFlow,
+  explanations,
+  instructor,
+}: {
+  report: QuestionReport;
+  state: OriginalState;
+  namespace: Namespace;
+  readingFlow: boolean;
+  explanations: ExplanationLoadState & {
+    packages: import("./explanations/contract").ExplanationPackage[];
+  };
+  instructor: InstructorLoadState & {
+    packages: import("./instructor/contract").InstructorPackage[];
+  };
+}) {
+  const current = state.data.questions.find(
+    (question) => question.id === report.questionId,
+  );
+  const matchesReport = (question: Question) =>
+    question.id === report.questionId &&
+    question.revision === report.revision &&
+    question.gradingRevision === report.gradingRevision;
+  let question = current;
+  let assets = state.data.assets;
+  if (!current || !matchesReport(current)) {
+    for (const session of state.sessions) {
+      const snapshot = session.questions.find(matchesReport);
+      if (snapshot) {
+        question = snapshot;
+        assets = session.assets;
+        break;
+      }
+    }
+  }
+  if (!question)
+    return (
+      <p className="original-muted">
+        저장된 자료에서 이 문항의 원문을 찾을 수 없습니다.
+      </p>
+    );
+  const accepted = question.officialAnswer.acceptedChoices;
+  return (
+    <div className="original-report-question">
+      {current && !matchesReport(current) && (
+        <p className="original-muted">
+          {question === current
+            ? "신고 당시 문항 버전이 없어 현재 버전을 표시합니다."
+            : "신고 당시 문항을 표시합니다. 현재 등록된 문항 버전이 다릅니다."}
+        </p>
+      )}
+      <Blocks
+        blocks={question.body}
+        assets={assets}
+        readingFlow={readingFlow}
+      />
+      {question.choices.map((choice) => (
+        <div className="original-result-choice" key={choice.number}>
+          <b>{choice.number}.</b>
+          <Blocks
+            blocks={choice.blocks}
+            assets={assets}
+            readingFlow={readingFlow}
+          />
+        </div>
+      ))}
+      <p>
+        {namespace === "demo" ? "시연 정답" : "공식 최종 정답"}{" "}
+        {accepted.length ? `${accepted.join(", ")}번` : "확정된 선택지 없음"}
+      </p>
+      {(instructor.packages.length > 0 || !!instructor.error) && (
+        <InstructorExplanationView
+          question={question}
+          assets={assets}
+          packages={instructor.packages}
+          namespace={namespace}
+          libraryState={instructor}
+          canReveal
+        />
+      )}
+      {(!instructor.packages.length ||
+        explanations.packages.length > 0 ||
+        !!explanations.error) && (
+        <ExplanationView
+          question={question}
+          assets={assets}
+          packages={explanations.packages}
+          namespace={namespace}
+          libraryState={explanations}
+        />
+      )}
+    </div>
+  );
+}
+
 function Result({
   explanationPackages,
   explanationState,
@@ -2443,6 +2665,7 @@ function Result({
   namespace,
   onHome,
   onRetry,
+  renderReportButton,
   busy,
 }: {
   state: OriginalState;
@@ -2454,6 +2677,7 @@ function Result({
   namespace: Namespace;
   onHome: () => void;
   onRetry: () => void;
+  renderReportButton: (question: Question) => import("react").ReactNode;
   busy: boolean;
 }) {
   const summary = resultSummary(state, session),
@@ -2608,6 +2832,7 @@ function Result({
                   다시 보기 {state.marks[q.id] ? "표시됨" : "표시 없음"} · 검토{" "}
                   {session.review[q.id] ? "표시됨" : "표시 없음"}
                 </p>
+                {renderReportButton(q)}
               </details>
             );
           })}

@@ -2,8 +2,10 @@ import type { AuthSession, CloudConfig } from "../sync/transport";
 import {
   ExplanationSyncRepository,
   explanationBundleFingerprint,
+  parseExplanationBundle,
 } from "./sync";
 import { ExplanationCloudTransport } from "./sync-transport";
+import { SharedLibrary } from "../sync/shared-library";
 
 export interface ExplanationSyncCounts {
   legacy: number;
@@ -13,6 +15,8 @@ export interface ExplanationSyncOptions {
   repository?: ExplanationSyncRepository;
   transport?: ExplanationCloudTransport;
   current?: () => boolean | Promise<boolean>;
+  shared?: boolean;
+  sharedFetch?: typeof fetch;
 }
 const repository = new ExplanationSyncRepository();
 /** Direct implementation shared by injected tests, unsupported browsers and the
@@ -55,6 +59,20 @@ export async function syncExplanationLibrariesCore(
   await guard();
   // A concurrent import during listing/download remains visible to this job.
   snapshot = await local.readForSync(owner);
+  if (options.shared && !snapshot.bundle.legacy.length && !snapshot.bundle.instructor.length) {
+    await guard();
+    const source = new SharedLibrary(config, auth, options.sharedFetch);
+    const manifest = await source.getManifest();
+    await guard();
+    if (manifest) {
+      const bundle = await parseExplanationBundle(
+        await source.getPart(manifest, "explanations"),
+      );
+      await guard();
+      await local.seedShared(owner, bundle, guard);
+      snapshot = await local.readForSync(owner);
+    }
+  }
   await guard();
   const fingerprint = await explanationBundleFingerprint(snapshot.bundle);
   // Fingerprinting may await crypto or a worker checkpoint. Recheck before any

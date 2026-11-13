@@ -91,9 +91,15 @@ export class SupabaseTransport {
       } catch {}
       const versionConflict =
         /bank_version_conflict|mark_version_conflict/.test(detail);
+      const signupUnavailable =
+        path.startsWith("/auth/v1/otp") &&
+        (detail === "등록된 이메일만 가입할 수 있습니다." ||
+          detail === "Database error saving new user");
       const text = versionConflict
         ? "다른 기기에서 자료나 표시가 변경되었습니다. 최신 내용을 확인한 뒤 반영할 변경을 선택하세요."
-        : code === "otp_expired"
+        : signupUnavailable
+          ? "가입할 수 없습니다. 허용 목록에 등록된 이메일인지 확인해 주세요."
+          : code === "otp_expired"
           ? "인증번호가 올바르지 않거나 만료되었습니다. 번호를 확인하고, 만료된 경우 새 번호를 받으세요."
           : code === "otp_disabled"
             ? "인증번호 로그인을 사용할 수 없습니다. 동기화 서버의 로그인 설정을 확인하세요."
