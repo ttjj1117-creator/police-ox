@@ -492,6 +492,30 @@ export class ExplanationSyncRepository {
     }
     return false;
   }
+  async seedShared(owner: string, incoming: ExplanationBundle, guard: () => Promise<void>) {
+    const checked = await parseExplanationBundle(incoming);
+    if (!checked.legacy.length && !checked.instructor.length) return;
+    const fingerprint = await explanationBundleFingerprint(checked);
+    for (let retry = 0; retry < 3; retry++) {
+      const before = await this.raw(owner);
+      const existing = await this.cachedBundle(owner, before);
+      if (existing.legacy.length || existing.instructor.length) return;
+      const metadata = this.metadata(before);
+      metadata.generation++;
+      // This release can be fetched directly on each device. Seed copies do not
+      // need an additional upload into this learner's private object store.
+      metadata.published.push(fingerprint);
+      await guard();
+      try {
+        await this.write(owner, before, checked, metadata);
+        this.changed(owner);
+        return;
+      } catch (error) {
+        if (retry === 2 || !(error instanceof Error) || !/다른 창/.test(error.message))
+          throw error;
+      }
+    }
+  }
   async migrateLocal(owner: string): Promise<boolean> {
     return (await this.migrateLocalSnapshot(owner)).changed;
   }

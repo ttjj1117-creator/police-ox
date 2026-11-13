@@ -9,6 +9,7 @@ export type ExplanationWorkerRequest =
       owner: string;
       auth: AuthSession;
       config: CloudConfig;
+      shared?: boolean;
     }
   | { type: "current"; id: number; checkpoint: number; current: boolean };
 export type ExplanationWorkerResponse =
@@ -262,6 +263,7 @@ export class ExplanationSyncWorkerClient {
     auth: AuthSession,
     config: CloudConfig,
     current?: () => boolean | Promise<boolean>,
+    shared?: boolean,
   ): Promise<ExplanationSyncCounts> {
     if (owner !== `${config.url}|${auth.user.id}`)
       return Promise.reject(Error("해설 동기화 계정이 다릅니다."));
@@ -297,7 +299,7 @@ export class ExplanationSyncWorkerClient {
           }
           const worker = this.workerFor(job);
           this.touch(job);
-          worker.postMessage({ type: "run", id: job.id, owner, auth, config });
+          worker.postMessage({ type: "run", id: job.id, owner, auth, config, ...(shared ? { shared } : {}) });
         } catch (reason) {
           this.settle(
             job,
@@ -317,12 +319,14 @@ export function runExplanationSyncWorker(
   auth: AuthSession,
   config: CloudConfig,
   current?: () => boolean | Promise<boolean>,
+  shared?: boolean,
 ) {
   return (client ??= new ExplanationSyncWorkerClient()).run(
     owner,
     auth,
     config,
     current,
+    shared,
   );
 }
 export function cancelExplanationSyncWorker(): void {
