@@ -28,9 +28,10 @@ export class ExplanationCloudTransport {
   constructor(
     public config: CloudConfig,
     private fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
+    private resource: "explanations" | "frequent-issues" = "explanations",
   ) {}
   private prefix(auth: AuthSession) {
-    return `${auth.user.id}/real/explanations`;
+    return `${auth.user.id}/real/${this.resource}`;
   }
   private checkPath(
     path: string,
@@ -163,8 +164,10 @@ export class ExplanationCloudTransport {
     }
   }
   async upload(bundle: ExplanationBundle, auth: AuthSession): Promise<string> {
-    const checked = await parseExplanationBundle(bundle),
-      bytes = utf8.encode(canonicalExplanationValue(checked));
+    return this.uploadValue(await parseExplanationBundle(bundle), auth);
+  }
+  async uploadValue(value: unknown, auth: AuthSession): Promise<string> {
+    const bytes = utf8.encode(canonicalExplanationValue(value));
     let refs: Ref[] = [];
     for (let offset = 0; offset < bytes.length; offset += CHUNK)
       refs.push(
@@ -191,7 +194,10 @@ export class ExplanationCloudTransport {
     const root = await this.put(
       utf8.encode(
         JSON.stringify({
-          format: "police-explanation-sync",
+          format:
+            this.resource === "explanations"
+              ? "police-explanation-sync"
+              : "police-frequent-issues-sync",
           version: 1,
           total: bytes.length,
           payloadSha256: await sha256(bytes),
@@ -204,12 +210,18 @@ export class ExplanationCloudTransport {
     return root.path;
   }
   async download(path: string, auth: AuthSession): Promise<ExplanationBundle> {
+    return parseExplanationBundle(await this.downloadValue(path, auth));
+  }
+  async downloadValue(path: string, auth: AuthSession): Promise<unknown> {
     this.checkPath(path, auth, "manifests");
     const manifest = JSON.parse(
       new TextDecoder().decode(await this.get(path, auth)),
     );
     if (
-      manifest?.format !== "police-explanation-sync" ||
+      manifest?.format !==
+        (this.resource === "explanations"
+          ? "police-explanation-sync"
+          : "police-frequent-issues-sync") ||
       manifest.version !== 1 ||
       !Number.isSafeInteger(manifest.total) ||
       manifest.total < 1 ||
@@ -265,6 +277,6 @@ export class ExplanationCloudTransport {
     }
     if ((await sha256(bytes)) !== manifest.payloadSha256)
       throw Error("해설 묶음 해시가 다릅니다. 기존 자료는 보존됩니다.");
-    return parseExplanationBundle(JSON.parse(new TextDecoder().decode(bytes)));
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   }
 }

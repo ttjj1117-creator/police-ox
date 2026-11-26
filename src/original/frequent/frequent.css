@@ -1,0 +1,629 @@
+.frequent-issues {
+  font-size: max(17px, 1em);
+  line-height: 1.75;
+  min-width: 0;
+  container: frequent / inline-size;
+}
+.original-main > .frequent-issues {
+  padding: 18px;
+}
+.frequent-issues *,
+.frequent-issues *::before,
+.frequent-issues *::after {
+  box-sizing: border-box;
+}
+.frequent-issues h1,
+.frequent-issues h2,
+.frequent-issues h3,
+.frequent-issues p {
+  margin-top: 0;
+}
+.frequent-issues h1 {
+  margin-bottom: 4px;
+  font-size: 1.85em;
+  line-height: 1.35;
+}
+.frequent-issues h2 {
+  font-size: 1.18em;
+  line-height: 1.6;
+}
+.frequent-issues h3 {
+  font-size: 1.08em;
+  line-height: 1.6;
+}
+.frequent-issues button,
+.frequent-issues select,
+.frequent-issues input {
+  min-height: 46px;
+  font: inherit;
+  border: 1px solid #ccd7cb;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink, #203d38);
+}
+.frequent-issues button {
+  cursor: pointer;
+  padding: 8px 13px;
+  line-height: 1.45;
+}
+.frequent-issues button:hover:not(:disabled) {
+  border-color: var(--green, #215d50);
+  background: #edf4ed;
+}
+.frequent-issues button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+.frequent-issues button:focus-visible,
+.frequent-issues select:focus-visible,
+.frequent-issues input:focus-visible,
+.frequent-issues summary:focus-visible,
+.frequent-issues a:focus-visible {
+  outline: 3px solid #71a68c;
+  outline-offset: 3px;
+}
+.frequent-issues button.primary {
+  background: var(--green, #215d50);
+  color: #fff;
+}
+.frequent-issues button.primary:hover:not(:disabled) {
+  background: #164a3e;
+}
+.frequent-heading {
+  max-width: none;
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 1em;
+  line-height: inherit;
+  color: inherit;
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 18px;
+}
+.frequent-heading > p {
+  max-width: 23em;
+  margin-bottom: 5px;
+  color: #5c7065;
+}
+.frequent-eyebrow {
+  color: #597b65;
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.frequent-meta {
+  font-size: 0.85em;
+  color: #566b5e;
+  margin: 8px 0 12px;
+}
+.frequent-filters {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(180px, 1.8fr) repeat(
+      3,
+      minmax(85px, 0.8fr)
+    );
+  gap: 10px;
+  margin: 20px 0;
+}
+.frequent-filters label,
+.frequent-search {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-weight: 650;
+  font-size: 0.9em;
+  min-width: 0;
+}
+.frequent-filters select,
+.frequent-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+}
+.frequent-issues .frequent-coverage {
+  border: 1px solid #d6e0d3;
+  background: #f0f5ec;
+  border-radius: 11px;
+  padding: 16px;
+  margin: 18px 0 20px;
+}
+.frequent-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.frequent-section-heading h2 {
+  margin: 0;
+}
+.frequent-section-heading > span {
+  font-size: 0.85em;
+}
+.frequent-coverage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.frequent-coverage-item {
+  background: #fff;
+  border: 1px solid #dde6d9;
+  border-radius: 8px;
+  padding: 12px;
+}
+.frequent-coverage-item h3 {
+  font-size: 0.82em;
+  margin-bottom: 6px;
+}
+.frequent-coverage-item > p {
+  font-size: 0.88em;
+  margin-bottom: 4px;
+}
+.frequent-coverage-item strong {
+  font-size: 1.5em;
+  font-variant-numeric: tabular-nums;
+}
+.frequent-coverage-item b {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--green, #215d50);
+}
+.frequent-coverage-item .frequent-meta {
+  font-size: 0.77em;
+}
+.frequent-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 0.86em;
+  border-top: 1px solid #d6e0d3;
+  padding-top: 12px;
+}
+.frequent-coverage > .frequent-meta:last-of-type {
+  margin-bottom: 0;
+}
+.frequent-duplicates {
+  margin-top: 10px;
+  font-size: 0.85em;
+}
+.frequent-issues summary {
+  cursor: pointer;
+  padding: 8px 0;
+  min-height: 44px;
+  font-weight: 600;
+}
+.frequent-kind-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+.frequent-kind-buttons button {
+  font-size: 0.87em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+}
+.frequent-kind-buttons button span {
+  font-size: 0.8em;
+  padding: 1px 7px;
+  border-radius: 20px;
+  background: #edf2e9;
+}
+.frequent-issues button[aria-pressed="true"] {
+  border-color: #48775f;
+  background: #e4eee1;
+  color: #1e5645;
+  font-weight: 750;
+}
+.frequent-kind-description {
+  margin: 12px 0 18px;
+  font-size: 0.87em;
+  color: #53695b;
+}
+.frequent-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.25fr);
+  align-items: start;
+  gap: 18px;
+}
+.frequent-list-area,
+.frequent-detail {
+  min-width: 0;
+  scroll-margin-top: 18px;
+}
+.frequent-list-count {
+  font-size: 0.82em;
+  color: #5b7060;
+  margin: 10px 0;
+}
+.frequent-topic-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.frequent-topic-card {
+  background: #fff;
+  border: 1px solid #d6dfd0;
+  border-radius: 10px;
+  padding: 14px;
+}
+.frequent-topic-card.is-selected {
+  border: 2px solid #5d886b;
+  padding: 13px;
+  background: #fcfdf9;
+}
+.frequent-topic-card h2 {
+  margin-bottom: 10px;
+}
+.frequent-topic-card h2 button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+  font-weight: 700;
+  font-size: 1em;
+  line-height: 1.65;
+  min-height: auto;
+}
+.frequent-topic-card h2 button:hover:not(:disabled),
+.frequent-topic-card h2 button[aria-pressed="true"] {
+  background: transparent;
+  color: #1e5645;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.frequent-row-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  margin: 8px 0;
+}
+.frequent-row-metrics > div {
+  border-left: 1px solid #dfe5d9;
+  padding-left: 9px;
+}
+.frequent-row-metrics > div:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+.frequent-row-metrics dt {
+  font-size: 0.78em;
+  color: #5f7166;
+  white-space: normal;
+}
+.frequent-row-metrics dd {
+  font-size: 1.25em;
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.frequent-row-metrics small {
+  margin-left: 3px;
+  font-size: 0.58em;
+  font-weight: 400;
+}
+.frequent-card-actions,
+.frequent-practice-actions,
+.frequent-detail-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.frequent-card-actions button {
+  flex: 1;
+  font-size: 0.82em;
+  padding: 8px;
+}
+.frequent-topic-card > .frequent-meta {
+  font-size: 0.76em;
+  margin-bottom: 10px;
+}
+.frequent-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  margin: 18px 0;
+  font-size: 0.9em;
+}
+.frequent-issues .frequent-detail {
+  background: #fff;
+  padding: 18px;
+  border: 1px solid #d5dfd0;
+  border-radius: 11px;
+}
+.frequent-detail > h2 {
+  font-size: 1.3em;
+  margin: 0 0 16px;
+  overflow-wrap: anywhere;
+}
+.frequent-detail .frequent-row-metrics {
+  padding: 10px 0;
+}
+.frequent-practice-actions {
+  margin-top: 18px;
+}
+.frequent-practice-actions button {
+  flex: 1;
+}
+.frequent-detail-buttons {
+  margin: 20px 0 15px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #dbe3d5;
+}
+.frequent-detail-buttons button {
+  flex: 1;
+}
+.frequent-related-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.frequent-related-list > li {
+  border-bottom: 1px solid #e0e6da;
+  padding: 14px 0;
+}
+.frequent-related-list > li:last-child {
+  border: 0;
+}
+.frequent-related-list strong {
+  font-size: 0.92em;
+  font-weight: 600;
+}
+.frequent-related-list button {
+  margin-top: 8px;
+  font-size: 0.88em;
+}
+.frequent-badge {
+  display: inline-block;
+  font-size: 0.68em;
+  background: #eef1e8;
+  color: #5c6e55;
+  border: 1px solid #d8e0d0;
+  padding: 2px 6px;
+  margin-left: 6px;
+  border-radius: 5px;
+  vertical-align: middle;
+  font-weight: 500;
+}
+.frequent-badge.is-wrong {
+  background: #f8e8df;
+  border-color: #e6cbbb;
+  color: #8c5137;
+}
+.frequent-reading-notice {
+  background: #f4f2e7;
+  border-left: 3px solid #aaa371;
+  padding: 12px;
+  font-size: 0.9em;
+}
+.frequent-reading-notice button {
+  margin-top: 8px;
+}
+.frequent-reading {
+  font-size: 1.02em;
+}
+.frequent-issues .frequent-reading > section {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 18px 0;
+  border-bottom: 1px solid #dde5d7;
+}
+.frequent-issues .frequent-reading > section:last-child {
+  border: 0;
+  padding-bottom: 0;
+}
+.frequent-reading h3 {
+  margin-bottom: 12px;
+}
+.frequent-reading blockquote {
+  margin: 12px 0;
+  padding: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-left: 3px solid #8ea783;
+  background: #f3f6ee;
+  font-size: 0.95em;
+}
+.frequent-empty-copy {
+  color: #61705e;
+  font-size: 0.92em;
+}
+.frequent-excerpt {
+  margin: 0 0 18px;
+}
+.frequent-excerpt:last-child {
+  margin-bottom: 0;
+}
+.frequent-excerpt figcaption {
+  font-size: 0.84em;
+  font-weight: 650;
+}
+.frequent-review-notes {
+  padding-left: 20px;
+}
+.frequent-review-notes li {
+  margin: 14px 0;
+}
+.frequent-review-notes li p {
+  margin: 0 0 5px;
+}
+.frequent-review-notes small {
+  font-size: 0.78em;
+  color: #67775e;
+}
+.frequent-context {
+  border: 1px solid #d9e2d2;
+  padding: 0 12px;
+  margin: 10px 0;
+  border-radius: 7px;
+}
+.frequent-context summary {
+  line-height: 1.65;
+  font-size: 0.91em;
+}
+.frequent-context blockquote {
+  border-color: #a8ab8c;
+  background: #f5f5ed;
+}
+.frequent-variants {
+  padding-left: 22px;
+  margin: 12px 0;
+}
+.frequent-variants > li {
+  padding: 12px 0 18px 3px;
+  border-bottom: 1px solid #e1e7db;
+}
+.frequent-variants > li:last-child {
+  border: 0;
+}
+.frequent-variants strong {
+  font-size: 0.86em;
+}
+.frequent-variants button {
+  font-size: 0.88em;
+}
+.frequent-semantic-note {
+  font-size: 0.9em;
+  color: #50654e;
+}
+.frequent-sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.frequent-source {
+  border-top: 1px solid #dde5d7;
+  padding: 14px 0;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+.frequent-source:first-child {
+  border: 0;
+  padding-top: 0;
+}
+.frequent-source-locator {
+  font-size: 0.86em;
+  white-space: pre-wrap;
+}
+.frequent-source a {
+  color: var(--green, #215d50);
+  display: inline-block;
+  padding: 8px 0;
+}
+.frequent-location-list {
+  padding-left: 18px;
+  font-size: 0.8em;
+}
+.frequent-detail-empty {
+  padding: 24px 0;
+}
+.frequent-detail-empty > p:last-child {
+  font-size: 0.95em;
+  color: #60735e;
+}
+.frequent-empty {
+  padding: 22px 14px;
+  background: #eff3e9;
+  border-radius: 9px;
+}
+.frequent-empty h2 {
+  font-size: 1.06em;
+}
+.frequent-empty p {
+  font-size: 0.9em;
+  margin-bottom: 0;
+}
+@container frequent (max-width: 850px) {
+  .frequent-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .frequent-topic-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .frequent-detail-empty {
+    padding: 4px 0;
+  }
+  .frequent-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .frequent-unit-filter {
+    grid-column: span 2;
+  }
+  .frequent-heading {
+    display: block;
+  }
+  .frequent-heading > p {
+    max-width: none;
+    margin-top: 8px;
+  }
+}
+@container frequent (max-width: 740px) {
+  .frequent-issues .frequent-coverage {
+    padding: 12px;
+  }
+  .frequent-coverage-grid {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+  .frequent-coverage-item {
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 10px;
+    align-items: baseline;
+  }
+  .frequent-coverage-item h3 {
+    margin: 0;
+    font-size: 0.82em;
+  }
+  .frequent-coverage-item > p {
+    text-align: right;
+  }
+  .frequent-coverage-item .frequent-meta {
+    grid-column: 1 / -1;
+    text-align: left;
+    margin: 0;
+  }
+  .frequent-kind-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .frequent-topic-list {
+    display: flex;
+    align-items: stretch;
+  }
+  .frequent-filters {
+    gap: 9px;
+  }
+  .frequent-filters select {
+    font-size: 0.93em;
+    padding: 9px 5px;
+  }
+  .frequent-issues .frequent-detail {
+    padding: 14px;
+  }
+  .frequent-practice-actions {
+    flex-direction: column;
+  }
+  .frequent-practice-actions button {
+    flex: auto;
+  }
+  .frequent-reading blockquote {
+    padding: 10px;
+  }
+  .frequent-detail > h2 {
+    font-size: 1.22em;
+  }
+}

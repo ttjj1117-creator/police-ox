@@ -52,22 +52,33 @@ test("해설 가져오기·재가져오기·잘못된 참조 거부·내보내�
       .explanations,
   ).toHaveLength(6);
   await p.getByRole("button", { name: "근거·출제 빈도", exact: true }).click();
-  const row = p.getByRole("row").filter({ hasText: "중립 도형 안내 A" });
+  await p.getByRole("button", { name: /^원문 검증 근거/ }).click();
+  const row = p
+    .locator(".frequent-topic-card")
+    .filter({ hasText: "중립 도형 안내 A" });
   await expect(row).toBeVisible();
-  const cells = await row.getByRole("cell").allTextContents();
-  expect(cells.slice(1, 5)).toEqual(["2", "2", "4", "2026년 1차"]);
-  await expect(p.locator(".frequency-coverage")).toContainText(
-    "검증 연결 문항 2개 (2%)",
+  expect((await row.locator("dd").allTextContents()).slice(0, 3)).toEqual([
+    "2문항",
+    "2회",
+    "4개",
+  ]);
+  await expect(row).toContainText("최근 2026년 1차");
+  await expect(p.locator(".frequent-coverage-item").first()).toContainText(
+    /2\s*\/\s*100문항\s*2%/,
   );
-  await p.getByRole("button", { name: "쟁점별", exact: true }).click();
-  const issue = p.getByRole("row").filter({ hasText: "색깔 확인" });
-  expect((await issue.getByRole("cell").allTextContents()).slice(1, 4)).toEqual(
-    ["1", "1", "2"],
-  );
+  await p.getByRole("button", { name: /^원문 검증 쟁점/ }).click();
+  const issue = p
+    .locator(".frequent-topic-card")
+    .filter({ hasText: "색깔 확인" });
+  expect((await issue.locator("dd").allTextContents()).slice(0, 3)).toEqual([
+    "1문항",
+    "1회",
+    "2개",
+  ]);
   await p.reload();
   await p.getByRole("button", { name: "근거·출제 빈도", exact: true }).click();
-  await expect(p.locator(".frequency-coverage")).toContainText(
-    "검증 연결 문항 2개",
+  await expect(p.locator(".frequent-coverage-item").first()).toContainText(
+    /2\s*\/\s*100문항/,
   );
 });
 test("제출 후만 등록된 해설·발췌를 오프라인 열람하고 관련 기출 이동·필기 배치를 보존한다", async ({
@@ -76,10 +87,16 @@ test("제출 후만 등록된 해설·발췌를 오프라인 열람하고 관련
 }) => {
   await setup(p);
   await p.getByRole("button", { name: "근거·출제 빈도", exact: true }).click();
+  await p.getByRole("button", { name: /^원문 검증 근거/ }).click();
   await p
-    .getByRole("row")
+    .locator(".frequent-topic-card")
     .filter({ hasText: "중립 도형 안내 A" })
-    .getByRole("button")
+    .getByRole("button", { name: "관련 기출 보기", exact: true })
+    .click();
+  await p
+    .locator(".frequent-detail")
+    .getByRole("button", { name: "관련 원문 보기", exact: true })
+    .first()
     .click();
   await p
     .getByRole("button", { name: "이 기출 풀기", exact: true })
@@ -156,11 +173,13 @@ test("모의고사 중 해설·근거 분석을 숨기고 종료 후 같은 스�
   await p.getByRole("button", { name: "근거·출제 빈도", exact: true }).click();
   await expect(
     p.getByText(
-      "진행 중인 모의고사의 근거·해설은 제출 뒤 확인할 수 있습니다.",
+      "진행 중인 모의고사의 쟁점·근거·해설은 제출 뒤 확인할 수 있습니다.",
       { exact: true },
     ),
   ).toBeVisible();
-  await expect(p.locator(".frequency-table")).toHaveCount(0);
+  await expect(
+    p.locator(".frequent-topic-list, .frequent-reading"),
+  ).toHaveCount(0);
   await p
     .getByRole("button", { name: "진행 중 시험 이어 풀기", exact: true })
     .click();
@@ -191,8 +210,8 @@ test("해설 없는 실제 영역은 비어 있는 상태를 지원하고 시연
   await setup(p);
   await p.getByLabel("저장 영역", { exact: true }).selectOption("real");
   await p.getByRole("button", { name: "근거·출제 빈도", exact: true }).click();
-  await expect(p.locator(".frequency-coverage")).toContainText(
-    "집계 대상 원본 0문항",
+  await expect(p.locator(".frequent-coverage")).toContainText(
+    "고유 원본 0문항",
   );
   await p.getByRole("button", { name: "데이터·설정", exact: true }).click();
   await p.getByText("이전 형식 해설 관리·복구", { exact: true }).click();
@@ -276,9 +295,9 @@ for (const namespace of ["demo", "real"] as const) {
     await p
       .getByRole("button", { name: "근거·출제 빈도", exact: true })
       .click();
-    await expect(p.getByText(/분석 자료 미등록/)).toBeVisible();
-    await expect(p.locator(".frequency-coverage")).toContainText(
-      "검증 연결 문항 0개 (0%)",
+    await expect(p.getByText(/연결 자료가 등록되지 않았습니다/)).toBeVisible();
+    await expect(p.locator(".frequent-coverage-item").first()).toContainText(
+      /0\s*\/\s*\d+문항\s*0%/,
     );
     await p.getByRole("button", { name: "일반 학습", exact: true }).click();
     await p.getByRole("button", { name: "시작하기", exact: true }).click();
@@ -403,12 +422,12 @@ test("손상된 선택 해설 저장소는 미등록과 구분하고 문제 풀�
   await p.reload();
   await p.getByRole("button", { name: "근거·출제 빈도", exact: true }).click();
   await expect(p.getByRole("alert")).toContainText(
-    "해설 자료를 불러오지 못했습니다.",
+    "연결 자료를 불러오지 못했습니다.",
   );
-  await expect(p.getByText(/분석 자료 미등록/)).toHaveCount(0);
-  await expect(p.locator(".frequency-coverage")).toHaveCount(0);
+  await expect(p.getByText(/연결 자료가 등록되지 않았습니다/)).toHaveCount(0);
+  await expect(p.locator(".frequent-coverage")).toHaveCount(0);
   await p
-    .getByRole("button", { name: "해설 다시 불러오기", exact: true })
+    .getByRole("button", { name: "자료 다시 불러오기", exact: true })
     .click();
   await expect(p.getByRole("alert")).toBeVisible();
   await p.getByRole("button", { name: "일반 학습", exact: true }).click();
