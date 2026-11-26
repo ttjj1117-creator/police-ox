@@ -54,6 +54,14 @@ import "./original.css";
 import "./review-progress.css";
 import { QuizChrome, QuizAnswerSheet } from "./QuizChrome";
 import { useExplanationLibrary } from "./explanations/library";
+import {
+  FrequentIssues,
+  createFrequentViewState,
+  type FrequentViewState,
+} from "./frequent/FrequentIssues";
+import { FrequentIssuesManager } from "./frequent/FrequentIssuesManager";
+import { useFrequentIssuesLibrary } from "./frequent/library";
+import { useLegacyAnalysis } from "./frequent/useLegacyAnalysis";
 import { useInstructorLibrary } from "./instructor/library";
 import {
   InstructorManager,
@@ -63,7 +71,6 @@ import {
 import {
   ExplanationManager,
   ExplanationView,
-  EvidenceAnalysis,
   type ExplanationLoadState,
 } from "./explanations/ExplanationUI";
 import { QuizInputGuard } from "./ink/InputGuard";
@@ -208,6 +215,32 @@ export function OriginalApp({
       new URLSearchParams(window.location.search).get("panel") === "cloud")
       ? "cloud"
       : "home",
+  );
+  const frequentLibrary = useFrequentIssuesLibrary(
+    inkOwnerKey,
+    namespace,
+    cloud.ready,
+  );
+  const analysisLegacy = useLegacyAnalysis(
+    inkOwnerKey,
+    namespace,
+    explanations.packages,
+    page === "evidence",
+  );
+  const [frequentView, setFrequentView] = useState<{
+    key: string;
+    value: FrequentViewState;
+  } | null>(null);
+  const [frequentPreview, setFrequentPreview] = useState<{
+    key: string;
+    questionId: string;
+  } | null>(null);
+  const frequentViewState = useMemo(
+    () =>
+      frequentView?.key === readingOwner
+        ? frequentView.value
+        : createFrequentViewState(),
+    [frequentView, readingOwner],
   );
   const [selection, setSelection] = useState<OriginalSelection>({
     ...defaultSelection,
@@ -952,32 +985,36 @@ export function OriginalApp({
         {error && <button onClick={() => location.reload()}>다시 시도</button>}
       </main>
     );
-  async function openEvidenceQuestion(id: string) {
+  async function beginFrequentQuestions(ids: string[]) {
     let target: string | null = null;
     await mutate(
-      (d) => {
-        const current = activeSession(d);
+      (draft) => {
+        const current = activeSession(draft);
         if (current) {
           target = current.id;
           return;
         }
-        const item = d.data.questions.find(
-          (q) =>
-            q.id === id &&
-            !d.removedQuestionIds?.includes(q.id) &&
-            isEligible(q, namespace),
+        const requested = new Set(ids);
+        const candidates = draft.data.questions.filter((item) =>
+          requested.has(item.id),
         );
-        if (!item) throw Error("현재 풀 수 없는 문항입니다.");
+        if (!candidates.length)
+          throw Error("현재 풀 수 있는 연결 문항이 없습니다.");
         target = startSession(
-          d,
+          draft,
           namespace,
-          { ...defaultSelection, subjectId: item.subjectId, limit: 1 },
+          {
+            ...defaultSelection,
+            subjectId: candidates[0].subjectId,
+            limit: candidates.length,
+          },
           "study",
           Date.now(),
-          [item],
+          candidates,
         ).id;
       },
       () => {
+        setFrequentPreview(null);
         setSessionId(target);
         setChoice(null);
         setPage("quiz");
@@ -1408,21 +1445,107 @@ export function OriginalApp({
               )}
             </>
           )}
-          {page === "evidence" && (
-            <EvidenceAnalysis
-              state={state}
-              namespace={namespace}
-              packages={explanations.packages}
-              libraryState={explanations}
-              onOpen={(id) => void openEvidenceQuestion(id)}
-              onResume={() => {
-                if (active) {
-                  setSessionId(active.id);
-                  setPage("quiz");
+          {page === "evidence" &&
+            (frequentPreview?.key === readingOwner &&
+            active?.mode !== "exam" ? (
+              <section aria-label="쟁점 관련 기출 원문">
+                <button onClick={() => setFrequentPreview(null)}>
+                  빈출 쟁점으로 돌아가기
+                </button>
+                {(() => {
+                  const item = state.data.questions.find(
+                    (q) => q.id === frequentPreview.questionId,
+                  );
+                  if (
+                    !item ||
+                    state.removedQuestionIds?.includes(item.id) ||
+                    !isEligible(item, namespace)
+                  )
+                    return <p>현재 범위에서 이 원문을 열 수 없습니다.</p>;
+                  return (
+                    <>
+                      <h1>
+                        {subjectLabels[item.subjectId]} · {item.source.year}년{" "}
+                        {item.source.round}차 {item.source.questionNumber}번
+                      </h1>
+                      <ReportedQuestion
+                        report={{
+                          questionId: item.id,
+                          revision: item.revision,
+                          gradingRevision: item.gradingRevision,
+                        }}
+                        state={state}
+                        namespace={namespace}
+                        readingFlow={readingFlow}
+                        explanations={explanations}
+                        instructor={instructorExplanations}
+                        revealAnswer={false}
+                      />
+                      <button
+                        disabled={!!active}
+                        onClick={() => void beginFrequentQuestions([item.id])}
+                      >
+                        이 기출 풀기
+                      </button>
+                    </>
+                  );
+                })()}
+              </section>
+            ) : (
+              <FrequentIssues
+                key={readingOwner}
+                state={state}
+                namespace={namespace}
+                ownerKey={inkOwnerKey}
+                legacyPackages={analysisLegacy.packages}
+                instructorPackages={instructorExplanations.packages}
+                handoff={frequentLibrary.handoff}
+                libraryState={{
+                  loading:
+                    frequentLibrary.loading ||
+                    analysisLegacy.loading ||
+                    explanations.loading ||
+                    instructorExplanations.loading,
+                  error:
+                    frequentLibrary.error ||
+                    analysisLegacy.error ||
+                    explanations.error ||
+                    instructorExplanations.error,
+                  reload: () => {
+                    frequentLibrary.reload();
+                    analysisLegacy.reload();
+                    explanations.reload();
+                    instructorExplanations.reload();
+                  },
+                }}
+                viewState={frequentViewState}
+                onViewStateChange={(value) =>
+                  setFrequentView({ key: readingOwner, value })
                 }
-              }}
-            />
-          )}
+                onPractice={(ids) => void beginFrequentQuestions(ids)}
+                onViewQuestion={(id) => {
+                  if (active?.mode !== "exam")
+                    setFrequentPreview({ key: readingOwner, questionId: id });
+                }}
+                onResume={() => {
+                  if (active) {
+                    setSessionId(active.id);
+                    setPage("quiz");
+                  }
+                }}
+              />
+            ))}
+          {(page === "quiz" || page === "result") &&
+            frequentView?.key === readingOwner && (
+              <button
+                onClick={() => {
+                  setFrequentPreview(null);
+                  setPage("evidence");
+                }}
+              >
+                빈출 쟁점으로 돌아가기
+              </button>
+            )}
           {page === "quiz" && session && q && (
             <QuizInputGuard
               key={JSON.stringify([
@@ -1983,6 +2106,11 @@ export function OriginalApp({
                   기록은 전체 백업에 포함됩니다.
                 </p>
               </section>
+              <FrequentIssuesManager
+                key={readingOwner}
+                library={frequentLibrary}
+                blocked={!!active}
+              />
               <InstructorManager
                 key={"instructor:" + readingOwner}
                 scopeKey={readingOwner}
@@ -2564,11 +2692,13 @@ function ReportedQuestion({
   readingFlow,
   explanations,
   instructor,
+  revealAnswer = true,
 }: {
-  report: QuestionReport;
+  report: Pick<QuestionReport, "questionId" | "revision" | "gradingRevision">;
   state: OriginalState;
   namespace: Namespace;
   readingFlow: boolean;
+  revealAnswer?: boolean;
   explanations: ExplanationLoadState & {
     packages: import("./explanations/contract").ExplanationPackage[];
   };
@@ -2626,30 +2756,38 @@ function ReportedQuestion({
           />
         </div>
       ))}
-      <p>
-        {namespace === "demo" ? "시연 정답" : "공식 최종 정답"}{" "}
-        {accepted.length ? `${accepted.join(", ")}번` : "확정된 선택지 없음"}
-      </p>
-      {(instructor.packages.length > 0 || !!instructor.error) && (
-        <InstructorExplanationView
-          question={question}
-          assets={assets}
-          packages={instructor.packages}
-          namespace={namespace}
-          libraryState={instructor}
-          canReveal
-        />
-      )}
-      {(!instructor.packages.length ||
-        explanations.packages.length > 0 ||
-        !!explanations.error) && (
-        <ExplanationView
-          question={question}
-          assets={assets}
-          packages={explanations.packages}
-          namespace={namespace}
-          libraryState={explanations}
-        />
+      {revealAnswer ? (
+        <>
+          <p>
+            {namespace === "demo" ? "시연 정답" : "공식 최종 정답"}{" "}
+            {accepted.length
+              ? `${accepted.join(", ")}번`
+              : "확정된 선택지 없음"}
+          </p>
+          {(instructor.packages.length > 0 || !!instructor.error) && (
+            <InstructorExplanationView
+              question={question}
+              assets={assets}
+              packages={instructor.packages}
+              namespace={namespace}
+              libraryState={instructor}
+              canReveal
+            />
+          )}
+          {(!instructor.packages.length ||
+            explanations.packages.length > 0 ||
+            !!explanations.error) && (
+            <ExplanationView
+              question={question}
+              assets={assets}
+              packages={explanations.packages}
+              namespace={namespace}
+              libraryState={explanations}
+            />
+          )}
+        </>
+      ) : (
+        <p>정답·해설은 이 기출 풀이에서 답안을 제출한 뒤 확인할 수 있습니다.</p>
       )}
     </div>
   );

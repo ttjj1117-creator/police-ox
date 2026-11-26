@@ -1,4 +1,6 @@
 import { syncExplanationLibrariesCore } from "./sync-runner-core";
+import { syncFrequentIssues } from "../frequent/sync";
+import { FrequentIssuesRepository } from "../frequent/library";
 import { ExplanationSyncRepository } from "./sync";
 import { ExplanationCloudTransport } from "./sync-transport";
 import type {
@@ -27,6 +29,13 @@ const checkpoints = new Map<
 const repository = new ExplanationSyncRepository(undefined, undefined, () => {
   if (active !== null) scope.postMessage({ type: "changed", id: active });
 });
+const frequentRepository = new FrequentIssuesRepository(
+  undefined,
+  undefined,
+  () => {
+    if (active !== null) scope.postMessage({ type: "changed", id: active });
+  },
+);
 const current = (id: number): Promise<boolean> =>
   new Promise((resolve, reject) => {
     const checkpoint = ++checkpointSequence;
@@ -96,6 +105,17 @@ async function run(
         sharedFetch: fetcher(message.id),
       },
     );
+    await syncFrequentIssues(message.owner, message.auth, message.config, {
+      repository: frequentRepository,
+      transport: new ExplanationCloudTransport(
+        message.config,
+        fetcher(message.id),
+        "frequent-issues",
+      ),
+      current: () => current(message.id),
+      shared: message.shared,
+      sharedFetch: fetcher(message.id),
+    });
     scope.postMessage({ type: "result", id: message.id, counts });
   } catch (reason) {
     scope.postMessage({

@@ -83,15 +83,19 @@ class FakeCloud {
         return json({ message: "unauthorized" }, 401);
       if (url.pathname === "/auth/v1/logout") return json({});
       if (url.pathname === "/storage/v1/object/list/police-sync-private") {
-        const input = body(), prefix = `${input.prefix}/`;
+        const input = body(),
+          prefix = `${input.prefix}/`;
         if (!prefix.startsWith(`${uid}/real/`))
           return json({ message: "forbidden" }, 403);
-        return json([...this.objects.keys()]
-          .filter((key) => key.startsWith(prefix))
-          .map((key) => key.slice(prefix.length))
-          .filter((name) => !name.includes("/"))
-          .sort().slice(input.offset, input.offset + input.limit)
-          .map((name) => ({ name, id: name })));
+        return json(
+          [...this.objects.keys()]
+            .filter((key) => key.startsWith(prefix))
+            .map((key) => key.slice(prefix.length))
+            .filter((name) => !name.includes("/"))
+            .sort()
+            .slice(input.offset, input.offset + input.limit)
+            .map((name) => ({ name, id: name })),
+        );
       }
       const storage = url.pathname.match(
         /^\/storage\/v1\/object\/(?:authenticated\/)?police-sync-private\/(.+)$/,
@@ -359,8 +363,10 @@ test("fake service: 틀린 인증번호와 재요청 제한 안내 후 받은 �
     page.getByText("이메일로 받은 인증번호를 입력하세요", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("처음 가입하거나 아직 이메일을 확인하지 않았다면"),
-  ).toContainText("메일의 확인 링크를 이 앱을 사용할 브라우저에서 여세요.");
+    page.getByText("처음 가입하려면 허용 목록에 등록된 이메일이 필요합니다."),
+  ).toContainText(
+    "가입 확인 메일의 링크를 이 앱을 사용할 브라우저에서 여세요.",
+  );
   await input.fill("01234568");
   await submit.click();
   await expect(page.getByRole("alert")).toContainText(
@@ -448,9 +454,7 @@ test("fake service: 두 독립 기기의 문제은행·완료 기록과 재시�
   ).toBeVisible();
   await nav(b, "계정·기기 동기화");
   await b.getByLabel("이메일", { exact: true }).fill("other@example.com");
-  await b
-    .getByRole("button", { name: "인증번호 받기", exact: true })
-    .click();
+  await b.getByRole("button", { name: "인증번호 받기", exact: true }).click();
   await b.getByLabel("이메일 인증번호", { exact: true }).fill(OTP);
   await b.getByRole("button", { name: "로그인", exact: true }).click();
   await expect(
@@ -617,7 +621,9 @@ test("fake service: 원격 삭제·표시 해제는 오래된 기기에서 되�
   );
   await a.getByRole("button", { name: /^답안표 / }).click();
   await a
-    .getByRole("button", { name: new RegExp(`^${target + 1}번 문항으로 이동 ·`) })
+    .getByRole("button", {
+      name: new RegExp(`^${target + 1}번 문항으로 이동 ·`),
+    })
     .click();
   await a.getByRole("button", { name: "1번 선택", exact: true }).click();
   await pc.setOffline(true);
@@ -700,11 +706,15 @@ test("fake service: 원격 삭제·표시 해제는 오래된 기기에서 되�
   await tab.close();
 });
 
-
-test("fake service: 임시 필기는 같은 계정 인증 갱신·동기화에 유지되고 실제 계정 전환에서는 분리된다", async ({ browser }) => {
+test("fake service: 임시 필기는 같은 계정 인증 갱신·동기화에 유지되고 실제 계정 전환에서는 분리된다", async ({
+  browser,
+}) => {
   test.setTimeout(90_000);
   const fake = new FakeCloud();
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: true });
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    hasTouch: true,
+  });
   await fake.attach(context);
   const page = await context.newPage();
   try {
@@ -725,18 +735,30 @@ test("fake service: 임시 필기는 같은 계정 인증 갱신·동기화에 �
       ["mouseReleased", 220, 0],
     ] as const)
       await cdp.send("Input.dispatchMouseEvent", {
-        type, x: bounds.x + dx, y: bounds.y + 24,
-        button: "left", buttons, pointerType: "pen",
+        type,
+        x: bounds.x + dx,
+        y: bounds.y + 24,
+        button: "left",
+        buttons,
+        pointerType: "pen",
         clickCount: type === "mouseMoved" ? 0 : 1,
         force: buttons ? 0.5 : 0,
       });
     await expect(marks).toHaveCount(1);
-    const paths = await marks.locator("path").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("d")));
-    await page.getByRole("button", { name: "모르겠음 제출", exact: true }).click();
+    const paths = await marks
+      .locator("path")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("d")));
+    await page
+      .getByRole("button", { name: "모르겠음 제출", exact: true })
+      .click();
     await expect.poll(async () => (await stored(page)).attempts.length).toBe(2);
-    const activeId = (await stored(page)).sessions.find((session: any) => session.status === "active").id;
+    const activeId = (await stored(page)).sessions.find(
+      (session: any) => session.status === "active",
+    ).id;
     await nav(page, "계정·기기 동기화");
-    await expect(page.getByRole("button", { name: "로그아웃", exact: true })).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "로그아웃", exact: true }),
+    ).toBeDisabled();
     const refreshBefore = fake.refreshRequests;
     // This expires the real controller token without changing its owner or
     // restarting the page. The normal sync action must refresh through fetch.
@@ -745,32 +767,57 @@ test("fake service: 임시 필기는 같은 계정 인증 갱신·동기화에 �
     expect(fake.refreshRequests).toBeGreaterThan(refreshBefore);
     await nav(page, "학습 홈");
     await page.getByRole("button", { name: /^이어 풀기/ }).click();
-    expect((await stored(page)).sessions.find((session: any) => session.status === "active").id).toBe(activeId);
+    expect(
+      (await stored(page)).sessions.find(
+        (session: any) => session.status === "active",
+      ).id,
+    ).toBe(activeId);
     await expect(marks).toHaveCount(1);
-    expect(await marks.locator("path").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("d")))).toEqual(paths);
-    await page.getByRole("button", { name: "필기 실행 취소", exact: true }).click();
+    expect(
+      await marks
+        .locator("path")
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("d"))),
+    ).toEqual(paths);
+    await page
+      .getByRole("button", { name: "필기 실행 취소", exact: true })
+      .click();
     await expect(marks).toHaveCount(0);
-    await page.getByRole("button", { name: "필기 다시 실행", exact: true }).click();
+    await page
+      .getByRole("button", { name: "필기 다시 실행", exact: true })
+      .click();
     await expect(marks).toHaveCount(1);
     expect((await stored(page)).data).toEqual(bank);
     expect((await stored(page)).attempts).toHaveLength(2);
 
     await page.getByRole("button", { name: "학습 종료", exact: true }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "학습 종료 확정", exact: true }).click();
-    await expect(page.getByRole("heading", { name: /학습 결과|풀이 결과/ })).toBeVisible();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "학습 종료 확정", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: /학습 결과|풀이 결과/ }),
+    ).toBeVisible();
     await sync(page);
     const ownerRecords = await stored(page);
     const signInHere = async (email: string) => {
       await nav(page, "계정·기기 동기화");
-      await expect(page.getByRole("button", { name: "로그아웃", exact: true })).toBeEnabled();
+      await expect(
+        page.getByRole("button", { name: "로그아웃", exact: true }),
+      ).toBeEnabled();
       await page.getByRole("button", { name: "로그아웃", exact: true }).click();
-      await expect(page.getByRole("heading", { name: "원문 기출 학습", exact: true })).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "원문 기출 학습", exact: true }),
+      ).toBeVisible();
       await nav(page, "계정·기기 동기화");
       await page.getByLabel("이메일", { exact: true }).fill(email);
-      await page.getByRole("button", { name: "인증번호 받기", exact: true }).click();
+      await page
+        .getByRole("button", { name: "인증번호 받기", exact: true })
+        .click();
       await page.getByLabel("이메일 인증번호", { exact: true }).fill(OTP);
       await page.getByRole("button", { name: "로그인", exact: true }).click();
-      await expect(page.getByRole("heading", { name: "원문 기출 학습", exact: true })).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "원문 기출 학습", exact: true }),
+      ).toBeVisible();
       await sync(page);
     };
     // Supported account changes require a successful study finish. Use the
@@ -781,8 +828,16 @@ test("fake service: 임시 필기는 같은 계정 인증 갱신·동기화에 �
     // writing a bank row until content changes. Verify this exact pristine
     // representation together with the authenticated account and rendered bank.
     expect(otherState).toBeNull();
-    const otherStatus = page.getByRole("region", { name: "동기화 상태", exact: true });
-    await expect(otherStatus.getByRole("heading", { name: "other@example.com", exact: true })).toBeVisible();
+    const otherStatus = page.getByRole("region", {
+      name: "동기화 상태",
+      exact: true,
+    });
+    await expect(
+      otherStatus.getByRole("heading", {
+        name: "other@example.com",
+        exact: true,
+      }),
+    ).toBeVisible();
     await expect(otherStatus).toContainText(/문제\s*0문항\s*·\s*그림\s*0개/);
     expect(fake.users.has(OTHER)).toBe(true);
     expect(fake.users.get(OTHER)!.events).toEqual([]);
@@ -790,12 +845,18 @@ test("fake service: 임시 필기는 같은 계정 인증 갱신·동기화에 �
     await signInHere("owner@example.com");
     expect((await stored(page)).data).toEqual(bank);
     expect((await stored(page)).attempts).toEqual(ownerRecords.attempts);
-    expect((await stored(page)).sessions.find((session: any) => session.id === activeId).status).not.toBe("active");
+    expect(
+      (await stored(page)).sessions.find(
+        (session: any) => session.id === activeId,
+      ).status,
+    ).not.toBe("active");
     await nav(page, "일반 학습");
     await page.getByRole("button", { name: "시작하기", exact: true }).click();
     await expect(paper).toHaveAttribute("data-ink-ready", "true");
     await expect(marks).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "필기 실행 취소", exact: true })).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "필기 실행 취소", exact: true }),
+    ).toBeDisabled();
     expect((await stored(page)).attempts).toEqual(ownerRecords.attempts);
   } finally {
     await context.close();

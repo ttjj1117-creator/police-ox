@@ -8,16 +8,20 @@ const bucket = "police-ox-shared";
 const maxStoredBytes = 50_000_000;
 const maxJsonBytes = 128 * 1024 * 1024;
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const objectRef = z.object({
-  bytes: z.number().int().positive().max(maxStoredBytes),
-  sha256: digest,
-}).strict();
-const manifestSchema = z.object({
-  version: z.literal(1),
-  releaseId: digest,
-  questions: objectRef,
-  explanations: objectRef,
-}).strict();
+const objectRef = z
+  .object({
+    bytes: z.number().int().positive().max(maxStoredBytes),
+    sha256: digest,
+  })
+  .strict();
+const manifestSchema = z
+  .object({
+    version: z.literal(1),
+    releaseId: digest,
+    questions: objectRef,
+    explanations: objectRef,
+  })
+  .strict();
 export type SharedLibraryManifest = z.infer<typeof manifestSchema>;
 type Part = "questions" | "explanations";
 
@@ -86,6 +90,41 @@ export class SharedLibrary {
     return boundedBytes(response.body, maxBytes);
   }
 
+  async getFrequentIssues(): Promise<unknown | null> {
+    const manifestBytes = await this.read(
+      "frequent-issues/current.json",
+      4096,
+      true,
+    );
+    if (!manifestBytes) return null;
+    const manifest = z
+      .object({
+        version: z.literal(1),
+        releaseId: digest,
+        connections: objectRef,
+      })
+      .strict()
+      .parse(decodeJson(manifestBytes));
+    if (manifest.releaseId !== manifest.connections.sha256)
+      throw Error("쟁점 연결 자료의 식별값이 일치하지 않습니다.");
+    const bytes = await this.read(
+      `frequent-issues/releases/${manifest.releaseId}/connections.json.gz`,
+      manifest.connections.bytes,
+    );
+    if (
+      !bytes ||
+      bytes.byteLength !== manifest.connections.bytes ||
+      (await sha256(bytes)) !== manifest.connections.sha256
+    )
+      throw Error("쟁점 연결 자료가 손상되었습니다.");
+    return decodeJson(
+      await boundedBytes(
+        new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip")),
+        maxJsonBytes,
+      ),
+    );
+  }
+
   async getManifest(): Promise<SharedLibraryManifest | null> {
     const bytes = await this.read("current.json", 4096, true);
     if (!bytes) return null;
@@ -105,18 +144,28 @@ export class SharedLibrary {
       `releases/${checked.releaseId}/${kind}.json.gz`,
       ref.bytes,
     );
-    if (!bytes || bytes.byteLength !== ref.bytes || (await sha256(bytes)) !== ref.sha256)
+    if (
+      !bytes ||
+      bytes.byteLength !== ref.bytes ||
+      (await sha256(bytes)) !== ref.sha256
+    )
       throw Error("공유 학습 자료가 손상되었습니다. 다시 동기화하세요.");
-    const stream = new Blob([bytes]).stream()
+    const stream = new Blob([bytes])
+      .stream()
       .pipeThrough(new DecompressionStream("gzip"));
     return decodeJson(await boundedBytes(stream, maxJsonBytes));
   }
 }
 
-export async function parseSharedQuestions(value: unknown): Promise<OriginalData> {
-  const { packages } = z.object({
-    packages: z.array(z.unknown()).min(1),
-  }).strict().parse(value);
+export async function parseSharedQuestions(
+  value: unknown,
+): Promise<OriginalData> {
+  const { packages } = z
+    .object({
+      packages: z.array(z.unknown()).min(1),
+    })
+    .strict()
+    .parse(value);
   let data = emptyData();
   for (const pkg of packages) {
     const next = await previewMerge(data, pkg, "real");
