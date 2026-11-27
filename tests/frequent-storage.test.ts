@@ -81,6 +81,18 @@ function fixture(
     reviewedLearningTopics: [],
   });
 }
+function reviewedFixture(
+  handoffRevision = 1,
+  sourceVersion = 1,
+  dataKind: "real" | "demo" = "real",
+): FrequentIssuesPackage {
+  return parseFrequentIssuesPackage({
+    ...fixture(sourceVersion, dataKind),
+    schemaVersion: "1.1.0",
+    handoffRevision,
+    canonicalLearningTopics: [],
+  });
+}
 function transport(values: unknown[] = []) {
   const paths = values.map(
     (_, index) =>
@@ -142,6 +154,55 @@ it("rejects equal, mixed or unrelated source revisions while preserving stored d
     "다른 원천",
   );
   expect(await repo.read(owner, "real")).toEqual(before);
+});
+
+it("updates reviewed semantics on an unchanged source vector and rejects late review revisions", async () => {
+  const repo = repository();
+  await repo.merge(owner, "real", fixture(1));
+  expect(await repo.merge(owner, "real", reviewedFixture(1))).toBe(true);
+  expect(await repo.merge(owner, "real", reviewedFixture(2))).toBe(true);
+  const before = await repo.read(owner, "real");
+  expect(before.handoff).toMatchObject({
+    schemaVersion: "1.1.0",
+    handoffRevision: 2,
+  });
+  expect(await repo.merge(owner, "real", reviewedFixture(1))).toBe(false);
+  expect(await repo.merge(owner, "real", fixture(1))).toBe(false);
+  const equalReview = reviewedFixture(2);
+  equalReview.questionIndex[0].eligible = false;
+  await expect(repo.merge(owner, "real", equalReview)).rejects.toThrow("충돌");
+  await expect(
+    repo.merge(owner, "real", reviewedFixture(1, 2)),
+  ).rejects.toThrow("충돌");
+  await expect(repo.merge(owner, "real", fixture(2))).rejects.toThrow("충돌");
+  expect(await repo.read(owner, "real")).toEqual(before);
+  expect(await repo.merge(owner, "real", reviewedFixture(3, 2))).toBe(true);
+  const blank = reviewedFixture(4, 3);
+  blank.questionIndex = [];
+  expect(await repo.merge(owner, "real", blank)).toBe(false);
+  expect((await repo.read(owner, "real")).handoff).toMatchObject({
+    handoffRevision: 3,
+  });
+});
+
+it("persists v1.1 locally with account claims and namespace isolation", async () => {
+  const factory = new IDBFactory(),
+    first = repository(factory);
+  await first.merge("local", "real", reviewedFixture(2));
+  await first.merge("local", "demo", reviewedFixture(3, 1, "demo"));
+  expect(await first.migrateLocal(owner)).toBe(true);
+  expect(await first.migrateLocal(other)).toBe(false);
+  await first.close();
+  const reopened = repository(factory);
+  expect((await reopened.read(owner, "real")).handoff).toMatchObject({
+    schemaVersion: "1.1.0",
+    handoffRevision: 2,
+  });
+  expect((await reopened.read(other, "real")).handoff).toBeNull();
+  expect((await reopened.read(owner, "demo")).handoff).toBeNull();
+  expect((await reopened.read("local", "demo")).handoff).toMatchObject({
+    handoffRevision: 3,
+  });
 });
 
 it("uses compare-and-swap across concurrent imports and leaves the newest complete source vector", async () => {

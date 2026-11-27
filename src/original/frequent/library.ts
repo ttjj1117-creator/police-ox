@@ -85,7 +85,7 @@ async function hasPreviousSharedRelease(library: FrequentIssuesLibrary) {
   );
 }
 
-/** A handoff has a source-package version vector, not a last-writer timestamp.
+/** A handoff has a source-package and semantic-review version vector.
  * Omitted/older data never deletes a connection, and ambiguous revisions fail closed. */
 export function mergeFrequentIssuesPackages(
   before: FrequentIssuesPackage | null,
@@ -109,6 +109,14 @@ export function mergeFrequentIssuesPackages(
     lower ||= next.packageVersion < old.packageVersion;
     higher ||= next.packageVersion > old.packageVersion;
   }
+  // A reviewed classification can change while all three source packages stay
+  // fixed. Old clients remain revision zero and cannot overwrite newer reviews.
+  const oldRevision =
+      before.schemaVersion === "1.1.0" ? before.handoffRevision : 0,
+    nextRevision =
+      incoming.schemaVersion === "1.1.0" ? incoming.handoffRevision : 0;
+  lower ||= nextRevision < oldRevision;
+  higher ||= nextRevision > oldRevision;
   if (lower && !higher) return before;
   if (higher && !lower) return incoming;
   throw Error(

@@ -21,9 +21,12 @@ import type {
 } from "../instructor/contract";
 import {
   emptyFrequentFilter,
+  getFrequentLearningTopics,
   parseFrequentIssuesPackage,
+  semanticFrequentLinkMismatch,
   type FrequentAnalysis,
   type FrequentCitation,
+  type FrequentClassificationLevel,
   type FrequentEvidenceLane,
   type FrequentFilter,
   type FrequentIssuesPackage,
@@ -31,6 +34,7 @@ import {
   type FrequentLegacyLink,
   type FrequentLink,
   type FrequentReading,
+  type FrequentReviewedLink,
   type FrequentRow,
   type FrequentSource,
   type FrequentStatus,
@@ -61,12 +65,31 @@ type Diagnostic = {
   lane: FrequentEvidenceLane;
   status: FrequentStatus;
 };
+export interface UnifiedFrequentRow extends FrequentRow {
+  aliases: string[];
+  subjectId: Question["subjectId"];
+  classificationLevel: FrequentClassificationLevel;
+  studyUnitCodes: string[];
+}
+type IndexedCanonicalRow = IndexedRow &
+  Pick<
+    UnifiedFrequentRow,
+    "aliases" | "subjectId" | "classificationLevel" | "studyUnitCodes"
+  >;
+export interface UnifiedFrequentAnalysis extends FrequentAnalysis {
+  rows: UnifiedFrequentRow[];
+  wholeQuestions: number;
+  /** Preserved source and legacy diagnostics are available in the issue detail. */
+  diagnosticAnalysis: FrequentAnalysis;
+}
 export interface FrequentIssuesIndex {
   ownerKey: string;
   namespace: Namespace;
   questions: Question[];
   rows: IndexedRow[];
+  canonicalRows: IndexedCanonicalRow[];
   diagnostics: Diagnostic[];
+  semanticDiagnostics: Diagnostic[];
   duplicates: { questionIds: string[]; conflict: boolean }[];
   ambiguousKeys: Set<string>;
 }
@@ -715,91 +738,194 @@ export async function buildFrequentIssuesIndex(
       );
     }
   }
+  const resolveReviewedLink = (
+    topicId: string,
+    reviewed: FrequentReviewedLink,
+    q: Question,
+    diagnose: (status: FrequentStatus) => void,
+  ): FrequentLink | undefined => {
+    if (
+      bindingStatus(reviewed, q) ||
+      !targetMatches(q, reviewed.selector, reviewed.expectedText)
+    ) {
+      diagnose("stale");
+      return;
+    }
+    let sources: FrequentSource[] = [],
+      excerpts: ReadingExcerpt[] = [];
+    let valid = false;
+    if (reviewed.evidenceLane === "legacy_verified") {
+      const legacy = validLegacy.get(reviewed.explanationId);
+      const current = currentExplanations.get(reviewed.explanationId);
+      const currentReviewMatches =
+        !current ||
+        (current.revision === reviewed.revision &&
+          equal(current.references, reviewed.references) &&
+          reviewed.reviewedIssueIds.every((id) =>
+            current.references.some((ref) => ref.issueIds.includes(id)),
+          ));
+      if (
+        legacy &&
+        currentReviewMatches &&
+        equal(legacy.selector, reviewed.selector) &&
+        legacy.expectedText === reviewed.expectedText
+      ) {
+        sources = legacySources(reviewed.references, reviewed.reviewedIssueIds);
+        excerpts = legacyExcerpts(q, reviewed.selector, sources);
+        valid = sources.length > 0;
+      } else {
+        diagnose(blockedLegacy.has(q.id) ? "conflict" : "stale");
+      }
+    } else {
+      valid = validCitations.has(reviewed.sourceCitationId);
+      if (!valid) diagnose("stale");
+    }
+    let evidenceValid = reviewed.evidenceLane === "legacy_verified";
+    for (const evidence of reviewed.instructorEvidence) {
+      const runtime = records.get(evidence.recordId);
+      const currentStatus = runtime ? runtimeStatus(runtime, q) : "stale";
+      if (!runtime || currentStatus) {
+        if (reviewed.evidenceLane !== "legacy_verified")
+          diagnose(currentStatus ?? "stale");
+        continue;
+      }
+      const block = runtime.record.blocks[evidence.blockIndex];
+      const expectedPackage = handoff!.inputPackages.instructor;
+      const pinned = evidence.citationIds.length
+        ? evidence.citationIds.every(
+            (id) =>
+              validCitations.get(id)?.runtime.record.id === evidence.recordId,
+          )
+        : runtime.package.packageId === expectedPackage.packageId &&
+          runtime.package.packageVersion === expectedPackage.packageVersion;
+      const sourceTypeMatches =
+        (runtime.document.sourceType ?? "instructor") === evidence.sourceType;
+      const locationValid = evidence.sourceLocations.every(
+        (l) =>
+          l.page <= runtime.document.pageCount &&
+          block?.locations.some((location) => location.page === l.page),
+      );
+      if (
+        !block ||
+        block.type !== "text" ||
+        !pinned ||
+        !sourceTypeMatches ||
+        runtime.record.documentId !== evidence.documentId ||
+        !locationValid
+      ) {
+        if (reviewed.evidenceLane !== "legacy_verified") diagnose("stale");
+        continue;
+      }
+      evidenceValid = true;
+      const source = instructorSource(
+        runtime,
+        evidence.blockIndex,
+        evidence.sourceLocations,
+        "block",
+      );
+      sources.push(source);
+      excerpts.push(
+        ...instructorExcerpt(
+          runtime,
+          q,
+          reviewed.selector,
+          evidence.blockIndex,
+          source,
+        ),
+      );
+    }
+    if (!valid || !evidenceValid) return;
+    return {
+      id: `${topicId}:${q.id}:${selectorKey(reviewed.selector)}`,
+      question: q,
+      selector: reviewed.selector,
+      expectedText: reviewed.expectedText,
+      evidenceLane: "reviewed_topic",
+      legalStatus:
+        reviewed.evidenceLane === "legacy_verified"
+          ? "verified"
+          : "not_reviewed",
+      semanticReason: reviewed.semanticReason,
+      sources,
+      excerpts,
+    };
+  };
   for (const topic of handoff?.reviewedLearningTopics ?? [])
     for (const reviewed of topic.links) {
       const q = allQuestions.get(reviewed.questionId);
       if (!q || !eligibleIds.has(q.id)) continue;
-      if (
-        bindingStatus(reviewed, q) ||
-        !targetMatches(q, reviewed.selector, reviewed.expectedText)
-      ) {
-        mark(q, "reviewed_topic", "stale");
+      const link = resolveReviewedLink(topic.id, reviewed, q, (status) =>
+        mark(q, "reviewed_topic", status),
+      );
+      if (!link) continue;
+      add(
+        {
+          key: `reviewed-topic:${topic.id}`,
+          id: topic.id,
+          title: topic.title,
+          kind: "reviewed-topic",
+          lane: "reviewed_topic",
+        },
+        link,
+      );
+    }
+  const semanticDiagnostics: Diagnostic[] = [];
+  const canonicalRows: IndexedCanonicalRow[] = [];
+  for (const topic of handoff ? getFrequentLearningTopics(handoff) : []) {
+    const links: FrequentLink[] = [];
+    for (const reviewed of topic.links) {
+      const q = allQuestions.get(reviewed.questionId);
+      if (!q || !eligibleIds.has(q.id)) continue;
+      const diagnose = (status: FrequentStatus) =>
+        semanticDiagnostics.push({
+          question: q,
+          lane: "reviewed_topic",
+          status,
+        });
+      if (ambiguousKeys.has(sourceKey(q))) {
+        diagnose("conflict");
         continue;
       }
-      let sources: FrequentSource[] = [],
-        excerpts: ReadingExcerpt[] = [];
-      let valid = false;
-      if (reviewed.evidenceLane === "legacy_verified") {
-        const legacy = validLegacy.get(reviewed.explanationId);
-        const current = currentExplanations.get(reviewed.explanationId);
-        const currentReviewMatches =
-          !current ||
-          (current.revision === reviewed.revision &&
-            equal(current.references, reviewed.references) &&
-            reviewed.reviewedIssueIds.every((id) =>
-              current.references.some((ref) => ref.issueIds.includes(id)),
-            ));
-        if (
-          legacy &&
-          currentReviewMatches &&
-          equal(legacy.selector, reviewed.selector) &&
-          legacy.expectedText === reviewed.expectedText
-        ) {
-          sources = legacySources(
-            reviewed.references,
-            reviewed.reviewedIssueIds,
-          );
-          excerpts = legacyExcerpts(q, reviewed.selector, sources);
-          valid = sources.length > 0;
-        } else {
-          mark(
-            q,
-            "reviewed_topic",
-            blockedLegacy.has(q.id) ? "conflict" : "stale",
-          );
-        }
-      } else {
-        valid = validCitations.has(reviewed.sourceCitationId);
-        if (!valid) mark(q, "reviewed_topic", "stale");
+      if (reviewed.evidenceLane !== "semantic_reviewed") {
+        const link = resolveReviewedLink(topic.id, reviewed, q, diagnose);
+        if (link) links.push(link);
+        continue;
       }
-      let evidenceValid = reviewed.evidenceLane === "legacy_verified";
-      for (const evidence of reviewed.instructorEvidence) {
+      if (reviewed.classificationStatus !== "confirmed") {
+        diagnose(reviewed.classificationStatus === "hold" ? "hold" : "unknown");
+        continue;
+      }
+      const sourceStatus = reviewed.evidence.flatMap((evidence) => {
+        if (evidence.kind !== "instructor_block") return [];
         const runtime = records.get(evidence.recordId);
-        const currentStatus = runtime ? runtimeStatus(runtime, q) : "stale";
-        if (!runtime || currentStatus) {
-          if (reviewed.evidenceLane !== "legacy_verified")
-            mark(q, "reviewed_topic", currentStatus ?? "stale");
-          continue;
-        }
-        const block = runtime.record.blocks[evidence.blockIndex];
-        const expectedPackage = handoff!.inputPackages.instructor;
-        const pinned = evidence.citationIds.length
-          ? evidence.citationIds.every(
-              (id) =>
-                validCitations.get(id)?.runtime.record.id === evidence.recordId,
-            )
-          : runtime.package.packageId === expectedPackage.packageId &&
-            runtime.package.packageVersion === expectedPackage.packageVersion;
-        const sourceTypeMatches =
-          (runtime.document.sourceType ?? "instructor") === evidence.sourceType;
-        const locationValid = evidence.sourceLocations.every(
-          (l) =>
-            l.page <= runtime.document.pageCount &&
-            block?.locations.some((location) => location.page === l.page),
-        );
-        if (
-          !block ||
-          block.type !== "text" ||
-          !pinned ||
-          !sourceTypeMatches ||
-          runtime.record.documentId !== evidence.documentId ||
-          !locationValid
-        ) {
-          if (reviewed.evidenceLane !== "legacy_verified")
-            mark(q, "reviewed_topic", "stale");
-          continue;
-        }
-        evidenceValid = true;
+        const status = runtime
+          ? runtimeStatus(runtime, q)
+          : recordConflicts.has(evidence.recordId)
+            ? "conflict"
+            : "stale";
+        return status ? [status] : [];
+      });
+      if (sourceStatus.length) {
+        for (const status of new Set(sourceStatus)) diagnose(status);
+        continue;
+      }
+      if (
+        bindingStatus(reviewed, q) ||
+        (await semanticFrequentLinkMismatch(
+          reviewed,
+          q,
+          input.assets,
+          instructorSelection.selected,
+        ))
+      ) {
+        diagnose("stale");
+        continue;
+      }
+      const sources: FrequentSource[] = [],
+        excerpts: ReadingExcerpt[] = [];
+      for (const evidence of reviewed.evidence) {
+        if (evidence.kind !== "instructor_block") continue;
+        const runtime = records.get(evidence.recordId)!;
         const source = instructorSource(
           runtime,
           evidence.blockIndex,
@@ -817,34 +943,33 @@ export async function buildFrequentIssuesIndex(
           ),
         );
       }
-      if (!valid || !evidenceValid) continue;
-      const link: FrequentLink = {
-        id: `${topic.id}:${q.id}:${selectorKey(reviewed.selector)}`,
+      links.push({
+        id: reviewed.id,
         question: q,
         selector: reviewed.selector,
         expectedText: reviewed.expectedText,
         evidenceLane: "reviewed_topic",
-        legalStatus:
-          reviewed.evidenceLane === "legacy_verified"
-            ? "verified"
-            : "not_reviewed",
+        legalStatus: "not_reviewed",
         semanticReason: reviewed.semanticReason,
         sources,
         excerpts,
-      };
-      add(
-        {
-          key: `reviewed-topic:${topic.id}`,
-          id: topic.id,
-          title: topic.title,
-          kind: "reviewed-topic",
-          lane: "reviewed_topic",
-        },
-        link,
-      );
+      });
     }
+    canonicalRows.push({
+      key: `reviewed-topic:${topic.id}`,
+      id: topic.id,
+      title: topic.title,
+      kind: "reviewed-topic",
+      lane: "reviewed_topic",
+      aliases: topic.aliases,
+      subjectId: topic.subjectId,
+      classificationLevel: topic.classificationLevel,
+      studyUnitCodes: topic.studyUnitCodes,
+      links,
+    });
+  }
   // Keep source/selector duplicates as one link while retaining all distinct source records.
-  for (const row of rows.values()) {
+  for (const row of [...rows.values(), ...canonicalRows]) {
     const merged = new Map<string, FrequentLink>();
     for (const link of row.links) {
       const key = linkKey(link),
@@ -864,7 +989,9 @@ export async function buildFrequentIssuesIndex(
     namespace: input.namespace,
     questions,
     rows: [...rows.values()],
+    canonicalRows,
     diagnostics,
+    semanticDiagnostics,
     duplicates,
     ambiguousKeys,
   };
@@ -1045,5 +1172,59 @@ export function analyzeFrequentIssues(
     ),
     ambiguous: [...scopedKeys].filter((key) => index.ambiguousKeys.has(key))
       .length,
+  };
+}
+
+/** The study list contains only reviewed canonical topics. Source catalog rows
+ * remain available in diagnosticAnalysis and never become topics by identity. */
+export function analyzeUnifiedFrequentIssues(
+  index: FrequentIssuesIndex,
+  filter: FrequentFilter = emptyFrequentFilter,
+): UnifiedFrequentAnalysis {
+  const diagnosticAnalysis = analyzeFrequentIssues(index, filter);
+  const semantic = analyzeFrequentIssues(
+    {
+      ...index,
+      rows: index.canonicalRows,
+      diagnostics: index.semanticDiagnostics,
+    },
+    filter,
+  );
+  const metadata = new Map(index.canonicalRows.map((row) => [row.id, row]));
+  const rows: UnifiedFrequentRow[] = semantic.rows.map((row) => {
+    const topic = metadata.get(row.id)!;
+    return {
+      ...row,
+      aliases: topic.aliases,
+      subjectId: topic.subjectId,
+      classificationLevel: topic.classificationLevel,
+      studyUnitCodes: topic.studyUnitCodes,
+    };
+  });
+  const levelOrder: Record<FrequentClassificationLevel, number> = {
+    topic: 0,
+    issue: 1,
+    subissue: 2,
+    unspecified: 3,
+  };
+  rows.sort(
+    (a, b) =>
+      a.subjectId.localeCompare(b.subjectId) ||
+      levelOrder[a.classificationLevel] - levelOrder[b.classificationLevel] ||
+      b.questions - a.questions ||
+      b.rounds - a.rounds ||
+      b.related[0].source.year - a.related[0].source.year ||
+      b.related[0].source.round.localeCompare(a.related[0].source.round, "ko", {
+        numeric: true,
+      }) ||
+      a.title.localeCompare(b.title, "ko") ||
+      a.id.localeCompare(b.id),
+  );
+  return {
+    ...semantic,
+    rows,
+    wholeQuestions: semantic.lanes.reviewed.wholeQuestions,
+    lanes: { ...diagnosticAnalysis.lanes, reviewed: semantic.lanes.reviewed },
+    diagnosticAnalysis,
   };
 }

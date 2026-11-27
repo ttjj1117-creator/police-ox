@@ -3,15 +3,19 @@ import type { Question } from "../src/original/model";
 import type { InstructorPackage } from "../src/original/instructor/contract";
 import {
   questionFingerprint,
+  targetText,
   type ExplanationPackage,
 } from "../src/original/explanations/contract";
 import {
   parseFrequentIssuesPackage,
+  frequentQuestionText,
   type FrequentIssuesPackage,
   type FrequentLegacyLink,
+  type SemanticFrequentLink,
 } from "../src/original/frequent/contract";
 import {
   analyzeFrequentIssues,
+  analyzeUnifiedFrequentIssues,
   buildFrequentIssuesIndex,
   emptyFrequentFilter,
   getFrequentIssuesIndex,
@@ -360,6 +364,107 @@ const inputFor = (f: Awaited<ReturnType<typeof fixture>>) => ({
   ownerKey: "account-a",
 });
 
+async function textHash(value: string) {
+  return Array.from(
+    new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
+    ),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+async function semanticLink(
+  f: Awaited<ReturnType<typeof fixture>>,
+  options: {
+    id?: string;
+    questionIndex?: number;
+    wholeQuestion?: boolean;
+    instructorRecordIndex?: number;
+  } = {},
+): Promise<SemanticFrequentLink> {
+  const q = f.qs[options.questionIndex ?? 0],
+    selected = options.wholeQuestion ? null : selector,
+    expectedText = selected ? targetText(q, selected) : frequentQuestionText(q);
+  const link: SemanticFrequentLink = {
+    id: options.id ?? "semantic-link",
+    questionId: q.id,
+    subjectId: q.subjectId,
+    questionRevision: q.revision,
+    gradingRevision: q.gradingRevision,
+    questionFingerprint: await questionFingerprint(q),
+    sourceKey: [
+      q.source.examCode,
+      q.subjectId,
+      q.source.year,
+      q.source.round,
+      q.source.questionNumber,
+    ],
+    selector: selected,
+    expectedText,
+    evidenceLane: "semantic_reviewed",
+    classificationStatus: "confirmed",
+    semanticReason: "Synthetic direct meaning review.",
+    legalVerificationStatus: "not_reviewed",
+    evidence: [
+      {
+        kind: "question_text",
+        sourceFileName: null,
+        sourceLocations: [],
+        contentSha256: await textHash(expectedText),
+      },
+    ],
+  };
+  if (options.instructorRecordIndex !== undefined) {
+    const record = f.instructor.records[options.instructorRecordIndex],
+      document = f.instructor.documents.find(
+        (d) => d.documentId === record.documentId,
+      )!,
+      block = record.blocks[0];
+    if (block.type !== "text") throw Error("Synthetic text block required");
+    link.evidence = [
+      {
+        kind: "instructor_block",
+        recordId: record.id,
+        recordRevision: record.revision,
+        documentId: document.documentId,
+        documentSha256: document.sha256,
+        sourceType: document.sourceType ?? "instructor",
+        blockIndex: 0,
+        expectedText: block.text,
+        contentSha256: await textHash(block.text),
+        sourceLocations: block.locations.length
+          ? block.locations
+          : record.locations,
+      },
+    ];
+  }
+  return link;
+}
+async function semanticFixture(
+  options: Parameters<typeof semanticLink>[1] = {},
+) {
+  const f = await fixture(),
+    link = await semanticLink(f, options),
+    handoff = parseFrequentIssuesPackage({
+      ...f.handoff,
+      schemaVersion: "1.1.0",
+      handoffRevision: 1,
+      reviewedLearningTopics: [],
+      canonicalLearningTopics: [
+        {
+          id: "semantic-topic",
+          title: "Semantically reviewed topic",
+          aliases: ["Synthetic alias"],
+          subjectId: "police",
+          classificationLevel: "issue",
+          studyUnitCodes: [],
+          links: [link],
+        },
+      ],
+    });
+  if (handoff.schemaVersion !== "1.1.0") throw Error("Synthetic v1.1 required");
+  return { ...f, handoff };
+}
+
 describe("frequent issue handoff contract", () => {
   it("accepts the distinct format and keeps legal statuses unchanged", async () => {
     const f = await fixture();
@@ -663,5 +768,246 @@ describe("frequent issue aggregation", () => {
       getFrequentIssuesIndex({ ...input, instructorPackages: [replacement] }),
     ).not.toBe(first);
     await first;
+  });
+});
+
+describe("unified canonical frequent topics", () => {
+  it("retains the old diagnostic API and exposes only explicitly reviewed v1.0 topics", async () => {
+    const f = await fixture(),
+      index = await buildFrequentIssuesIndex(inputFor(f)),
+      old = analyzeFrequentIssues(index),
+      unified = analyzeUnifiedFrequentIssues(index);
+    expect(unified.diagnosticAnalysis).toEqual(old);
+    expect(unified.rows.map((row) => row.id).sort()).toEqual([
+      "topic1",
+      "topic2",
+    ]);
+    expect(old.rows.some((row) => row.kind === "authority")).toBe(true);
+    expect(old.rows.some((row) => row.kind === "legacy-basis")).toBe(true);
+    expect(unified.covered).toBe(1);
+    expect(unified.rows.every((row) => row.kind === "reviewed-topic")).toBe(
+      true,
+    );
+  });
+
+  it("preserves existing topic links and source readings through an explicit v1.1 migration", async () => {
+    const f = await fixture(),
+      before = analyzeUnifiedFrequentIssues(
+        await buildFrequentIssuesIndex(inputFor(f)),
+      );
+    expect(
+      before.rows.every((row) => row.classificationLevel === "unspecified"),
+    ).toBe(true);
+    f.handoff = parseFrequentIssuesPackage({
+      ...f.handoff,
+      schemaVersion: "1.1.0",
+      handoffRevision: 1,
+      canonicalLearningTopics: f.handoff.reviewedLearningTopics.map(
+        (topic) => ({
+          id: topic.id,
+          title: topic.title,
+          subjectId: topic.subjectId,
+          aliases: [],
+          classificationLevel: "issue",
+          studyUnitCodes: [],
+          links: topic.links,
+        }),
+      ),
+    });
+    const after = analyzeUnifiedFrequentIssues(
+      await buildFrequentIssuesIndex(inputFor(f)),
+    );
+    expect(after.rows).toEqual(
+      before.rows.map((row) => ({ ...row, classificationLevel: "issue" })),
+    );
+    expect(after.diagnosticAnalysis).toEqual(before.diagnosticAnalysis);
+  });
+
+  it.each(["absent", "unresolved"])(
+    "accepts matched instructor meaning when citation identity is %s",
+    async (identity) => {
+      const f = await semanticFixture({ instructorRecordIndex: 0 });
+      if (identity === "absent") {
+        f.handoff.sourceCitationOccurrences = [];
+        f.handoff.authorityCatalog = [];
+      } else {
+        const citation = f.handoff.sourceCitationOccurrences[0];
+        citation.disposition = "identity_hold";
+        citation.sourceIdentificationStatus = "unresolved";
+        citation.authorityId = null;
+        citation.sourceUnresolvedReasons = ["Synthetic unidentified citation"];
+      }
+      const result = analyzeUnifiedFrequentIssues(
+        await buildFrequentIssuesIndex(inputFor(f)),
+      );
+      expect(result).toMatchObject({ covered: 1, targets: 1 });
+      expect(result.rows[0]).toMatchObject({
+        id: "semantic-topic",
+        aliases: ["Synthetic alias"],
+        questions: 1,
+      });
+      expect(result.rows[0].reading.sources).toHaveLength(1);
+      expect(result.rows[0].links[0].legalStatus).toBe("not_reviewed");
+      expect(result.lanes.source.covered).toBe(0);
+    },
+  );
+
+  it("counts a confirmed whole question once without inventing target occurrences", async () => {
+    const f = await semanticFixture({ wholeQuestion: true });
+    const result = analyzeUnifiedFrequentIssues(
+      await buildFrequentIssuesIndex(inputFor(f)),
+    );
+    expect(result).toMatchObject({ covered: 1, targets: 0, wholeQuestions: 1 });
+    expect(result.rows[0]).toMatchObject({
+      questions: 1,
+      targets: 0,
+      wholeQuestions: 1,
+    });
+    expect(result.rows[0].links[0].selector).toBeNull();
+    expect(result.rows[0].reading.status).toBe("reviewed-links-only");
+  });
+
+  it("deduplicates one target across sources and retains multiple semantic topics", async () => {
+    const f = await semanticFixture({ instructorRecordIndex: 0 });
+    const secondDocument = structuredClone(f.instructor.documents[0]);
+    secondDocument.documentId = "document2";
+    secondDocument.sha256 = "b".repeat(64);
+    secondDocument.title = "Second synthetic source";
+    const secondRecord = structuredClone(f.instructor.records[0]);
+    secondRecord.id = "record2";
+    secondRecord.documentId = secondDocument.documentId;
+    f.instructor.documents.push(secondDocument);
+    f.instructor.records.push(secondRecord);
+    const topic = f.handoff.canonicalLearningTopics[0];
+    topic.links.push(
+      await semanticLink(f, { id: "same-source", instructorRecordIndex: 0 }),
+      await semanticLink(f, { id: "second-source", instructorRecordIndex: 1 }),
+      await semanticLink(f, { id: "original-text" }),
+    );
+    f.handoff.canonicalLearningTopics.push({
+      ...topic,
+      id: "different-meaning",
+      title: "A separate meaning from the same question",
+      aliases: [],
+      links: [await semanticLink(f, { id: "different-meaning-link" })],
+    });
+    const result = analyzeUnifiedFrequentIssues(
+      await buildFrequentIssuesIndex(inputFor(f)),
+    );
+    expect(result).toMatchObject({ covered: 1, targets: 1 });
+    expect(result.rows).toHaveLength(2);
+    const combined = result.rows.find((row) => row.id === topic.id)!;
+    expect(combined).toMatchObject({ questions: 1, targets: 1, rounds: 1 });
+    expect(combined.links).toHaveLength(1);
+    expect(combined.reading.sources).toHaveLength(2);
+    expect(combined.reading.excerpts).toHaveLength(2);
+  });
+
+  it.each([
+    "question",
+    "grading",
+    "document",
+    "record",
+    "text",
+    "location",
+    "scope",
+    "wrong-question",
+  ])(
+    "excludes stale or mismatched semantic evidence after a %s change",
+    async (change) => {
+      const f = await semanticFixture({ instructorRecordIndex: 0 });
+      if (change === "question") f.qs[0].revision++;
+      if (change === "grading") f.qs[0].gradingRevision++;
+      if (change === "document")
+        f.instructor.documents[0].sha256 = "c".repeat(64);
+      if (change === "record") f.instructor.records[0].revision++;
+      if (change === "text") {
+        const block = f.instructor.records[0].blocks[0];
+        if (block.type === "text") block.text = "Changed explanation context";
+      }
+      if (change === "location")
+        f.instructor.records[0].blocks[0].locations[0].bbox = [0, 0, 10, 10];
+      if (change === "scope")
+        f.instructor.records[0].scope.targets = [
+          { selector: { kind: "choice", number: 2 }, expectedText: "Target 2" },
+        ];
+      if (change === "wrong-question")
+        f.instructor.records[0].questionId = f.qs[1].id;
+      const result = analyzeUnifiedFrequentIssues(
+        await buildFrequentIssuesIndex(inputFor(f)),
+      );
+      expect(result.rows).toEqual([]);
+      expect(result.covered).toBe(0);
+      expect(result.statuses.stale).toBe(1);
+    },
+  );
+
+  it("keeps pending and held classification out of the study list", async () => {
+    const f = await semanticFixture();
+    const link = f.handoff.canonicalLearningTopics[0].links[0];
+    if (link.evidenceLane !== "semantic_reviewed")
+      throw Error("Synthetic semantic link required");
+    link.classificationStatus = "pending";
+    let result = analyzeUnifiedFrequentIssues(
+      await buildFrequentIssuesIndex(inputFor(f)),
+    );
+    expect(result.rows).toEqual([]);
+    expect(result.statuses.unknown).toBe(1);
+    link.classificationStatus = "hold";
+    result = analyzeUnifiedFrequentIssues(
+      await buildFrequentIssuesIndex(inputFor(f)),
+    );
+    expect(result.rows).toEqual([]);
+    expect(result.statuses.hold).toBe(1);
+  });
+
+  it("ranks the same classification level by questions, repeated rounds, then latest", async () => {
+    const f = await semanticFixture(),
+      q3 = question(3, "1"),
+      q4 = question(4, "3");
+    f.qs.push(q3, q4);
+    for (const q of [q3, q4]) {
+      const binding = await semanticLink(f, { questionIndex: f.qs.indexOf(q) });
+      f.handoff.questionIndex.push({
+        questionId: binding.questionId,
+        subjectId: binding.subjectId,
+        questionRevision: binding.questionRevision,
+        gradingRevision: binding.gradingRevision,
+        questionFingerprint: binding.questionFingerprint,
+        sourceKey: binding.sourceKey,
+        eligible: true,
+        classification: null,
+      });
+    }
+    const topic = f.handoff.canonicalLearningTopics[0];
+    f.handoff.canonicalLearningTopics = await Promise.all(
+      [
+        { id: "same-round", q: [0, 2] },
+        { id: "repeat", q: [0, 1] },
+        { id: "latest", q: [1, 3] },
+        { id: "single-question", q: [0] },
+      ].map(async (item) => ({
+        ...topic,
+        id: item.id,
+        title: item.id,
+        links: await Promise.all(
+          item.q.map((questionIndex) =>
+            semanticLink(f, {
+              id: `${item.id}-${questionIndex}`,
+              questionIndex,
+            }),
+          ),
+        ),
+      })),
+    );
+    const result = analyzeUnifiedFrequentIssues(
+      await buildFrequentIssuesIndex(inputFor(f)),
+    );
+    expect(result.rows.map((row) => row.id)).toEqual([
+      "latest",
+      "repeat",
+      "same-round",
+      "single-question",
+    ]);
   });
 });

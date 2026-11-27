@@ -121,13 +121,15 @@ async function importInstructor(page: Page, pkg: Awaited<ReturnType<typeof expla
   await expect(page.getByText("강사 해설을 저장하고 이전 등록 해설을 교체했습니다. 문제·정답·학습 기록은 유지했습니다.", { exact: true })).toBeVisible();
 }
 
-test("PC의 해설을 새 태블릿 계정으로 공유하고 오프라인 수정은 재연결 후 전송한다", async ({ browser }) => {
+test("PC의 해설을 새 태블릿 계정으로 공유하고 오프라인 수정은 재연결 후 전송한다", async ({ playwright }) => {
   test.setTimeout(60000);
-  const cloud = new ExplanationCloud();
-  const pc = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  const tablet = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  const other = await browser.newContext();
+  // Own the multi-device browser lifecycle independently of earlier tests.
+  const browser = await playwright.chromium.launch();
   try {
+    const cloud = new ExplanationCloud();
+    const pc = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const tablet = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const other = await browser.newContext();
     await Promise.all([cloud.attach(pc), cloud.attach(tablet), cloud.attach(other)]);
     const p = await pc.newPage(), t = await tablet.newPage(), o = await other.newPage();
     const pcBefore = await seed(p);
@@ -180,12 +182,13 @@ test("PC의 해설을 새 태블릿 계정으로 공유하고 오프라인 수�
       expect(account.sessions[0].status).toBe("completed");
       expect(account.attempts).toHaveLength(1);
     }
+  } catch (error) {
+    console.error("Multi-device sync assertion failed before cleanup", error);
+    throw error;
   } finally {
-    // Remove fake network handlers before tearing down worker-owning contexts.
-    // Pending routed requests must not race concurrent browser shutdown.
-    for (const context of [pc, tablet, other]) {
-      await context.unrouteAll({ behavior: "ignoreErrors" });
-      await context.close();
-    }
+    await Promise.all(browser.contexts().map((context) =>
+      context.unrouteAll({ behavior: "ignoreErrors" }),
+    ));
+    await browser.close();
   }
 });

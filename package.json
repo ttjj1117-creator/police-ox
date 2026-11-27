@@ -12,7 +12,8 @@
     "test:e2e": "node scripts/run-e2e.cjs",
     "validate:explanations": "tsx scripts/validate-explanations.ts",
     "fixtures:explanations": "tsx scripts/create-explanation-demo.ts",
-    "export:explanation-targets": "tsx scripts/export-explanation-targets.ts"
+    "export:explanation-targets": "tsx scripts/export-explanation-targets.ts",
+    "validate:frequent-issues": "tsx scripts/validate-frequent-issues.ts"
   },
   "dependencies": {
     "react": "19.1.0",
