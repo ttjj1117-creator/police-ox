@@ -398,7 +398,13 @@ function ReadingPanel({
         </section>
       )}
       {row.reading.notes.length > 0 && (
-        <details className="frequent-review-record">
+        <details
+          className="frequent-review-record"
+          open={view.expanded.includes("review-record")}
+          onToggle={(event) =>
+            expand("review-record", event.currentTarget.open)
+          }
+        >
           <summary>의미 연결 검토 기록 {row.reading.notes.length}개</summary>
           <ul className="frequent-review-notes">
             {row.reading.notes.map((note) => (

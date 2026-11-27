@@ -554,6 +554,10 @@ test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존
   await expect(detail.locator(".frequent-review-notes")).toContainText(
     reviewedNote,
   );
+  const reviewRecord = detail.locator(".frequent-review-record");
+  await expect(reviewRecord).not.toHaveAttribute("open", "");
+  await reviewRecord.locator("summary").click();
+  await expect(reviewRecord).toHaveAttribute("open", "");
   await expect(detail.locator(".frequent-variants > li")).toHaveCount(2);
 
   const original = detail
@@ -590,6 +594,7 @@ test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존
     .getByRole("button", { name: "빈출 쟁점으로 돌아가기", exact: true })
     .click();
   await expect(detail.locator(".frequent-reading")).toBeVisible();
+  await expect(reviewRecord).toHaveAttribute("open", "");
   await expect(page.getByLabel("기존 단원", { exact: true })).toHaveValue(
     "CONST-01",
   );
@@ -634,6 +639,7 @@ test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존
     .getByRole("button", { name: "빈출 쟁점으로 돌아가기", exact: true })
     .click();
   await expect(detail.locator(".frequent-reading")).toBeVisible();
+  await expect(reviewRecord).toHaveAttribute("open", "");
   await expect(
     detail.getByRole("button", { name: "오답만 1문항 풀기", exact: true }),
   ).toBeEnabled();
