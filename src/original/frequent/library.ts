@@ -16,6 +16,11 @@ export interface FrequentIssuesLibrary {
 interface StoredLibrary extends FrequentIssuesLibrary {
   revision: number;
 }
+// Canonical handoff fingerprints, not compressed Storage object hashes.
+const previousSharedFingerprint =
+  "2b098752b4a7a20ad86c42c3b39a96453d74a32e6b65a81f112ffc8c6c42547e";
+const refreshedSharedFingerprint =
+  "c7ab680df0bc76e8d466c277f9768979bafc5ec5dd22b9d286552edd944b2242";
 type Guard = () => void | Promise<void>;
 const checked = new WeakSet<FrequentIssuesPackage>();
 const fingerprints = new WeakMap<FrequentIssuesPackage, Promise<string>>();
@@ -67,6 +72,17 @@ export function frequentIssuesFingerprint(
   fingerprints.set(handoff, pending);
   void pending.catch(() => fingerprints.delete(handoff));
   return pending;
+}
+
+async function hasPreviousSharedRelease(library: FrequentIssuesLibrary) {
+  return (
+    library.handoff !== null &&
+    library.received.length === 0 &&
+    library.published.includes(previousSharedFingerprint) &&
+    !library.published.includes(refreshedSharedFingerprint) &&
+    (await frequentIssuesFingerprint(library.handoff)) ===
+      previousSharedFingerprint
+  );
 }
 
 /** A handoff has a source-package version vector, not a last-writer timestamp.
@@ -216,6 +232,15 @@ export class FrequentIssuesRepository {
     );
     return library;
   }
+  async shouldReceiveShared(
+    owner: string,
+    library: FrequentIssuesLibrary,
+  ): Promise<boolean> {
+    if (!library.handoff) return true;
+    if (!(await hasPreviousSharedRelease(library))) return false;
+    // A claimed, locally imported handoff remains under the personal merge policy.
+    return (await this.raw(owner, "real")).claim !== owner;
+  }
   private async write(
     owner: string,
     namespace: Namespace,
@@ -271,20 +296,56 @@ export class FrequentIssuesRepository {
     value: unknown,
     guard?: Guard,
   ): Promise<boolean> {
+    return this.mergeIntoStore(owner, namespace, value, guard);
+  }
+  async receiveShared(
+    owner: string,
+    value: unknown,
+    guard: Guard,
+  ): Promise<boolean> {
+    return this.mergeIntoStore(owner, "real", value, guard, true);
+  }
+  private async mergeIntoStore(
+    owner: string,
+    namespace: Namespace,
+    value: unknown,
+    guard?: Guard,
+    shared = false,
+  ): Promise<boolean> {
     const incoming = immutablePackage(value);
     if (incoming.dataKind !== namespace)
       throw Error("빈출 쟁점 자료 영역이 다릅니다.");
+    const sharedFingerprint = shared
+      ? await frequentIssuesFingerprint(incoming)
+      : null;
     for (let retry = 0; retry < 3; retry++) {
       await guard?.();
       const before = await this.raw(owner, namespace);
       const current = this.parse(owner, namespace, before.value);
-      const handoff = mergeFrequentIssuesPackages(current.handoff, incoming);
+      let handoff: FrequentIssuesPackage | null;
+      if (shared && current.handoff) {
+        // Recheck under compare-and-swap. A concurrent personal import wins.
+        if (
+          before.claim === owner ||
+          sharedFingerprint !== refreshedSharedFingerprint ||
+          !(await hasPreviousSharedRelease(current))
+        )
+          return false;
+        handoff = incoming;
+      } else {
+        handoff = mergeFrequentIssuesPackages(current.handoff, incoming);
+      }
       if (handoff === current.handoff) return false;
+      const published =
+        sharedFingerprint && !current.published.includes(sharedFingerprint)
+          ? [...current.published, sharedFingerprint]
+          : current.published;
       const next = {
         ...current,
         generation: current.generation + 1,
         revision: current.revision + 1,
         handoff,
+        published,
       };
       try {
         await this.write(owner, namespace, before, next, guard);

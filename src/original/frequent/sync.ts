@@ -61,7 +61,8 @@ export async function syncFrequentIssues(
   }
   snapshot = await local.readForSync(owner);
   await guard();
-  if (options.shared && !snapshot.handoff) {
+  if (options.shared && (await local.shouldReceiveShared(owner, snapshot))) {
+    await guard();
     const source = new SharedLibrary(config, auth, options.sharedFetch);
     const raw = await source.getFrequentIssues();
     await guard();
@@ -69,11 +70,7 @@ export async function syncFrequentIssues(
       const incoming = parseFrequentIssuesPackage(raw);
       if (incoming.dataKind !== "real")
         throw Error("시연 연결은 실제 계정에 동기화하지 않습니다.");
-      await local.merge(owner, "real", incoming, guard);
-      await guard();
-      const fingerprint = await frequentIssuesFingerprint(incoming);
-      await guard();
-      await local.mark(owner, "published", fingerprint, guard);
+      await local.receiveShared(owner, incoming, guard);
       await guard();
       snapshot = await local.readForSync(owner);
       await guard();
