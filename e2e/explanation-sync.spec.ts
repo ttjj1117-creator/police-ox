@@ -111,8 +111,7 @@ async function library(page: Page, owner = OWNER) {
 
 async function importInstructor(page: Page, pkg: Awaited<ReturnType<typeof explanationSyncFixture>>["instructor"]) {
   const settings = page.getByRole("button", { name: "데이터·설정", exact: true });
-  const menu = page.getByRole("button", { name: "메뉴", exact: true });
-  if (!(await settings.isVisible())) await menu.click();
+  // Both imports use the desktop PC viewport; click waits for app bootstrap.
   await settings.click();
   await page.getByLabel("강사 해설 JSON 가져오기", { exact: true }).setInputFiles({
     name: "TEST_ONLY.instructor.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(pkg)),
@@ -121,15 +120,13 @@ async function importInstructor(page: Page, pkg: Awaited<ReturnType<typeof expla
   await expect(page.getByText("강사 해설을 저장하고 이전 등록 해설을 교체했습니다. 문제·정답·학습 기록은 유지했습니다.", { exact: true })).toBeVisible();
 }
 
-test("PC의 해설을 새 태블릿 계정으로 공유하고 오프라인 수정은 재연결 후 전송한다", async ({ playwright }) => {
+test("PC의 해설을 새 태블릿 계정으로 공유하고 오프라인 수정은 재연결 후 전송한다", async ({ browser }) => {
   test.setTimeout(60000);
-  // Own the multi-device browser lifecycle independently of earlier tests.
-  const browser = await playwright.chromium.launch();
+  const cloud = new ExplanationCloud();
+  const pc = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const tablet = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const other = await browser.newContext();
   try {
-    const cloud = new ExplanationCloud();
-    const pc = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    const tablet = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    const other = await browser.newContext();
     await Promise.all([cloud.attach(pc), cloud.attach(tablet), cloud.attach(other)]);
     const p = await pc.newPage(), t = await tablet.newPage(), o = await other.newPage();
     const pcBefore = await seed(p);
@@ -182,13 +179,12 @@ test("PC의 해설을 새 태블릿 계정으로 공유하고 오프라인 수�
       expect(account.sessions[0].status).toBe("completed");
       expect(account.attempts).toHaveLength(1);
     }
-  } catch (error) {
-    console.error("Multi-device sync assertion failed before cleanup", error);
-    throw error;
   } finally {
-    await Promise.all(browser.contexts().map((context) =>
-      context.unrouteAll({ behavior: "ignoreErrors" }),
-    ));
-    await browser.close();
+    // Remove fake network handlers before tearing down worker-owning contexts.
+    // Pending routed requests must not race concurrent browser shutdown.
+    for (const context of [pc, tablet, other]) {
+      await context.unrouteAll({ behavior: "ignoreErrors" });
+      await context.close();
+    }
   }
 });
