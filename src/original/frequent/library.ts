@@ -17,10 +17,12 @@ interface StoredLibrary extends FrequentIssuesLibrary {
   revision: number;
 }
 // Canonical handoff fingerprints, not compressed Storage object hashes.
-const previousSharedFingerprint =
-  "2b098752b4a7a20ad86c42c3b39a96453d74a32e6b65a81f112ffc8c6c42547e";
-const refreshedSharedFingerprint =
-  "c7ab680df0bc76e8d466c277f9768979bafc5ec5dd22b9d286552edd944b2242";
+// Release order preserves the v1.0 refresh during a staggered rollout.
+const sharedFingerprints: readonly string[] = [
+  "2b098752b4a7a20ad86c42c3b39a96453d74a32e6b65a81f112ffc8c6c42547e",
+  "c7ab680df0bc76e8d466c277f9768979bafc5ec5dd22b9d286552edd944b2242",
+  "0999364087a0b7f8d6d295b5063311277ed3bb5914681f65fff00defceaf1a78",
+];
 type Guard = () => void | Promise<void>;
 const checked = new WeakSet<FrequentIssuesPackage>();
 const fingerprints = new WeakMap<FrequentIssuesPackage, Promise<string>>();
@@ -74,15 +76,16 @@ export function frequentIssuesFingerprint(
   return pending;
 }
 
-async function hasPreviousSharedRelease(library: FrequentIssuesLibrary) {
-  return (
-    library.handoff !== null &&
-    library.received.length === 0 &&
-    library.published.includes(previousSharedFingerprint) &&
-    !library.published.includes(refreshedSharedFingerprint) &&
-    (await frequentIssuesFingerprint(library.handoff)) ===
-      previousSharedFingerprint
-  );
+async function supersededSharedRelease(library: FrequentIssuesLibrary) {
+  if (!library.handoff || library.received.length) return -1;
+  let release = -1;
+  for (const [index, fingerprint] of sharedFingerprints.entries())
+    if (library.published.includes(fingerprint)) release = index;
+  if (release < 0 || release === sharedFingerprints.length - 1) return -1;
+  return (await frequentIssuesFingerprint(library.handoff)) ===
+    sharedFingerprints[release]
+    ? release
+    : -1;
 }
 
 /** A handoff has a source-package and semantic-review version vector.
@@ -245,7 +248,7 @@ export class FrequentIssuesRepository {
     library: FrequentIssuesLibrary,
   ): Promise<boolean> {
     if (!library.handoff) return true;
-    if (!(await hasPreviousSharedRelease(library))) return false;
+    if ((await supersededSharedRelease(library)) < 0) return false;
     // A claimed, locally imported handoff remains under the personal merge policy.
     return (await this.raw(owner, "real")).claim !== owner;
   }
@@ -326,6 +329,9 @@ export class FrequentIssuesRepository {
     const sharedFingerprint = shared
       ? await frequentIssuesFingerprint(incoming)
       : null;
+    const sharedRelease = sharedFingerprint
+      ? sharedFingerprints.indexOf(sharedFingerprint)
+      : -1;
     for (let retry = 0; retry < 3; retry++) {
       await guard?.();
       const before = await this.raw(owner, namespace);
@@ -333,10 +339,12 @@ export class FrequentIssuesRepository {
       let handoff: FrequentIssuesPackage | null;
       if (shared && current.handoff) {
         // Recheck under compare-and-swap. A concurrent personal import wins.
+        const installedRelease = await supersededSharedRelease(current);
         if (
           before.claim === owner ||
-          sharedFingerprint !== refreshedSharedFingerprint ||
-          !(await hasPreviousSharedRelease(current))
+          !incoming.questionIndex.length ||
+          installedRelease < 0 ||
+          sharedRelease <= installedRelease
         )
           return false;
         handoff = incoming;
