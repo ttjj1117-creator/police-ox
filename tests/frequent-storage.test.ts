@@ -11,6 +11,7 @@ import {
   type FrequentIssuesPackage,
 } from "../src/original/frequent/contract";
 import { SharedLibrary } from "../src/original/sync/shared-library";
+import { canonicalExplanationValue } from "../src/original/explanations/contract";
 import type { ExplanationCloudTransport } from "../src/original/explanations/sync-transport";
 
 const config = {
@@ -284,6 +285,159 @@ it("syncs independent immutable connection manifests without republishing receiv
   expect(shared).toHaveBeenCalledOnce();
   expect((await second.read(owner, "real")).handoff).toEqual(fixture(2));
   expect(emptyRemote.uploadValue).not.toHaveBeenCalled();
+});
+
+function sharedRefreshFixtures() {
+  const previous = fixture(),
+    refreshed = fixture();
+  refreshed.questionIndex[0].eligible = false;
+  const previousFingerprint =
+      "2b098752b4a7a20ad86c42c3b39a96453d74a32e6b65a81f112ffc8c6c42547e",
+    refreshedFingerprint =
+      "c7ab680df0bc76e8d466c277f9768979bafc5ec5dd22b9d286552edd944b2242";
+  const fingerprints = new Map([
+    [canonicalExplanationValue(previous), previousFingerprint],
+    [canonicalExplanationValue(refreshed), refreshedFingerprint],
+  ]);
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  vi.spyOn(crypto.subtle, "digest").mockImplementation((algorithm, data) => {
+    const fingerprint = fingerprints.get(new TextDecoder().decode(data));
+    return fingerprint
+      ? Promise.resolve(
+          Uint8Array.from(fingerprint.match(/../g)!, (hex) =>
+            Number.parseInt(hex, 16),
+          ).buffer,
+        )
+      : digest(algorithm, data);
+  });
+  return { previous, refreshed, previousFingerprint, refreshedFingerprint };
+}
+
+it("refreshes exactly the superseded shared handoff and never uploads the replacement to personal Storage", async () => {
+  const repo = repository(),
+    remote = transport(),
+    { previous, refreshed, previousFingerprint, refreshedFingerprint } =
+      sharedRefreshFixtures();
+  await repo.merge(owner, "real", previous);
+  await repo.mark(owner, "published", previousFingerprint);
+  await expect(repo.merge(owner, "real", refreshed)).rejects.toThrow("충돌");
+  const before = await repo.read(owner, "real");
+  const shared = vi
+    .spyOn(SharedLibrary.prototype, "getFrequentIssues")
+    .mockResolvedValue(refreshed);
+  const options = { repository: repo, transport: remote.value, shared: true };
+  await expect(
+    syncFrequentIssues(owner, auth, config, options),
+  ).resolves.toEqual({ connections: 1 });
+  expect(await repo.read(owner, "real")).toEqual({
+    ...before,
+    generation: before.generation + 1,
+    handoff: refreshed,
+    published: [previousFingerprint, refreshedFingerprint],
+  });
+  await syncFrequentIssues(owner, auth, config, options);
+  expect(shared).toHaveBeenCalledOnce();
+  expect(remote.uploadValue).not.toHaveBeenCalled();
+});
+
+it("keeps the installed shared handoff if the pointer is missing, unchanged or unrecognized", async () => {
+  const repo = repository(),
+    remote = transport(),
+    { previous, previousFingerprint } = sharedRefreshFixtures();
+  await repo.merge(owner, "real", previous);
+  await repo.mark(owner, "published", previousFingerprint);
+  const before = await repo.read(owner, "real");
+  const unrecognized = fixture();
+  unrecognized.questionIndex[0].questionRevision = 2;
+  const shared = vi
+    .spyOn(SharedLibrary.prototype, "getFrequentIssues")
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce(previous)
+    .mockResolvedValueOnce(unrecognized);
+  const options = { repository: repo, transport: remote.value, shared: true };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await syncFrequentIssues(owner, auth, config, options);
+    expect(await repo.read(owner, "real")).toEqual(before);
+  }
+  expect(shared).toHaveBeenCalledTimes(3);
+  expect(remote.uploadValue).not.toHaveBeenCalled();
+});
+
+it("protects personally imported content and its account-private receipts", async () => {
+  const { previous, refreshed, previousFingerprint } = sharedRefreshFixtures();
+  const shared = vi
+    .spyOn(SharedLibrary.prototype, "getFrequentIssues")
+    .mockResolvedValue(refreshed);
+  const personal = fixture();
+  personal.questionIndex[0].questionRevision = 2;
+  const hadSharedThenImported = repository(),
+    priorPrivateImport = repository(),
+    claimedLocalImport = repository();
+  await hadSharedThenImported.merge(owner, "real", personal);
+  await hadSharedThenImported.mark(owner, "published", previousFingerprint);
+  await hadSharedThenImported.mark(
+    owner,
+    "published",
+    await frequentIssuesFingerprint(personal),
+  );
+  for (const repo of [priorPrivateImport, claimedLocalImport]) {
+    await repo.merge(owner, "real", previous);
+    await repo.mark(owner, "published", previousFingerprint);
+  }
+  await priorPrivateImport.mark(
+    owner,
+    "received",
+    "TEST_ONLY_private_manifest",
+  );
+  await claimedLocalImport.merge("local", "real", previous);
+  await claimedLocalImport.migrateLocal(owner);
+  for (const repo of [
+    hadSharedThenImported,
+    priorPrivateImport,
+    claimedLocalImport,
+  ]) {
+    const before = await repo.read(owner, "real"),
+      remote = transport();
+    await syncFrequentIssues(owner, auth, config, {
+      repository: repo,
+      transport: remote.value,
+      shared: true,
+    });
+    expect(await repo.read(owner, "real")).toEqual(before);
+    expect(remote.uploadValue).not.toHaveBeenCalled();
+  }
+  expect(shared).not.toHaveBeenCalled();
+});
+
+it("checks ownership before saving the refresh and lets a concurrent personal import win", async () => {
+  const factory = new IDBFactory(),
+    repo = repository(factory),
+    otherWindow = repository(factory),
+    { previous, refreshed, previousFingerprint, refreshedFingerprint } =
+      sharedRefreshFixtures();
+  await repo.merge(owner, "real", previous);
+  await repo.mark(owner, "published", previousFingerprint);
+  const before = await repo.read(owner, "real");
+  let guardCalls = 0;
+  await expect(
+    repo.receiveShared(owner, refreshed, () => {
+      if (++guardCalls === 2) throw Error("TEST_ONLY_account_changed");
+    }),
+  ).rejects.toThrow("account_changed");
+  expect(await repo.read(owner, "real")).toEqual(before);
+
+  guardCalls = 0;
+  const personal = fixture(2);
+  await expect(
+    repo.receiveShared(owner, refreshed, async () => {
+      if (++guardCalls === 2) await otherWindow.merge(owner, "real", personal);
+    }),
+  ).resolves.toBe(false);
+  const result = await repo.read(owner, "real");
+  expect(result.handoff).toEqual(personal);
+  expect(result.published).not.toContain(refreshedFingerprint);
+  expect((await repo.read(other, "real")).handoff).toBeNull();
+  expect((await repo.read(owner, "demo")).handoff).toBeNull();
 });
 
 it("publishes a local import once and rejects a mismatched account before any transfer", async () => {
