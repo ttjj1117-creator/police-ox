@@ -12,17 +12,16 @@ import type { ExplanationLoadState } from "../explanations/ExplanationUI";
 import type { InstructorPackage } from "../instructor/contract";
 import type { FrequentFilter, FrequentIssuesPackage } from "./contract";
 import {
-  analyzeFrequentIssues,
+  analyzeUnifiedFrequentIssues,
   emptyFrequentFilter,
   getFrequentIssuesIndex,
 } from "./analysis";
 import "./frequent.css";
 
 type FrequentIndex = Awaited<ReturnType<typeof getFrequentIssuesIndex>>;
-type Analysis = ReturnType<typeof analyzeFrequentIssues>;
+type Analysis = ReturnType<typeof analyzeUnifiedFrequentIssues>;
 type FrequentRow = Analysis["rows"][number];
 type ReadingSource = FrequentRow["reading"]["sources"][number];
-type FrequentKind = FrequentRow["kind"];
 
 interface FrequentReadingViewState {
   expanded: string[];
@@ -38,25 +37,68 @@ const emptyReadingView = (): FrequentReadingViewState => ({
 
 export interface FrequentViewState {
   filter: FrequentFilter;
-  kind: FrequentKind;
   selectedKey: string;
   mode: "questions" | "reading";
   search: string;
   page: number;
   scrollY: number;
+  listScrollY: number;
+  listPaneScroll: number;
+  detailScroll: number;
+  detailOpen: boolean;
   reading: FrequentReadingViewState;
 }
 
 export function createFrequentViewState(): FrequentViewState {
   return {
-    filter: { ...emptyFrequentFilter },
-    kind: "reviewed-topic",
+    filter: { ...emptyFrequentFilter, subjectId: "constitution" },
     selectedKey: "",
     mode: "questions",
     search: "",
     page: 0,
     scrollY: 0,
+    listScrollY: 0,
+    listPaneScroll: 0,
+    detailScroll: 0,
+    detailOpen: false,
     reading: emptyReadingView(),
+  };
+}
+
+/** Old source-lane selections are discarded; only a canonical topic can reopen. */
+export function normalizeFrequentViewState(
+  value: Partial<FrequentViewState> & { kind?: unknown },
+  defaultSubject = "constitution",
+): FrequentViewState {
+  const initial = createFrequentViewState();
+  const oldSourceSelection =
+    value.kind !== undefined && value.kind !== "reviewed-topic";
+  const canonicalSelection =
+    !oldSourceSelection &&
+    typeof value.selectedKey === "string" &&
+    value.selectedKey.startsWith("reviewed-topic:");
+  const position = (number: number | undefined) =>
+    typeof number === "number" && Number.isFinite(number)
+      ? Math.max(0, number)
+      : 0;
+  return {
+    filter: {
+      ...initial.filter,
+      ...value.filter,
+      subjectId: value.filter?.subjectId ?? defaultSubject,
+    },
+    selectedKey: canonicalSelection ? value.selectedKey! : "",
+    mode: value.mode === "reading" ? "reading" : "questions",
+    search: oldSourceSelection ? "" : (value.search ?? ""),
+    page: oldSourceSelection ? 0 : Math.floor(position(value.page)),
+    scrollY: position(value.scrollY),
+    listScrollY: position(value.listScrollY ?? value.scrollY),
+    listPaneScroll: position(value.listPaneScroll),
+    detailScroll: position(value.detailScroll),
+    detailOpen: canonicalSelection && (value.detailOpen ?? true),
+    reading: canonicalSelection
+      ? (value.reading ?? emptyReadingView())
+      : emptyReadingView(),
   };
 }
 
@@ -75,32 +117,12 @@ export interface FrequentIssuesProps {
   onResume: () => void;
 }
 
-const rowKinds: { kind: FrequentKind; title: string; description: string }[] = [
-  {
-    kind: "reviewed-topic",
-    title: "검토한 학습 쟁점",
-    description:
-      "실제 지문과 해설 문맥을 직접 대조한 학습 쟁점입니다. 여러 판례의 같은 쟁점을 함께 보되, 같은 판례의 다른 쟁점은 구분합니다.",
-  },
-  {
-    kind: "legacy-issue",
-    title: "원문 검증 쟁점",
-    description:
-      "기존 검증 자료의 쟁점 ID를 그대로 사용합니다. 각 쟁점은 하나의 원문 근거에 속하며, 여러 근거를 아우르는 학습 쟁점과 구분합니다.",
-  },
-  {
-    kind: "legacy-basis",
-    title: "원문 검증 근거",
-    description:
-      "검증된 판례·조문 등 근거별 연결입니다. 한 근거 안의 여러 쟁점을 합친 출처별 빈도입니다.",
-  },
-  {
-    kind: "authority",
-    title: "강사 인용 출처",
-    description:
-      "강사 해설에서 출처를 식별하고 실제 인용을 대조한 연결입니다. 출처가 같아도 같은 학습 쟁점을 다룬다는 뜻은 아니며, 법률 상태는 미검토입니다.",
-  },
-];
+const classificationLabels = {
+  topic: "주제",
+  issue: "쟁점",
+  subissue: "세부 쟁점",
+  unspecified: "기존 검토 쟁점 · 분류 수준 미지정",
+};
 
 function questionLabel(question: Question) {
   return `${question.source.examName} · ${subjectLabels[question.subjectId] ?? question.subjectId} · ${question.source.year}년 ${question.source.round}차 ${question.source.questionNumber}번`;
@@ -198,28 +220,29 @@ function SourceReference({
   );
 }
 
-function RowMetrics({ row, wrong }: { row: FrequentRow; wrong: number }) {
+function RowMetrics({
+  row,
+  wrong,
+  unanswered,
+}: {
+  row: FrequentRow;
+  wrong: number;
+  unanswered: number;
+}) {
   return (
     <dl className="frequent-row-metrics">
       <div>
-        <dt>출제 문제</dt>
+        <dt>고유 문항</dt>
         <dd>
           {row.questions}
           <small>문항</small>
         </dd>
       </div>
       <div>
-        <dt>출제 회차</dt>
+        <dt>반복 회차</dt>
         <dd>
           {row.rounds}
           <small>회</small>
-        </dd>
-      </div>
-      <div>
-        <dt>{row.kind === "authority" ? "해설 범위 지문" : "등장 지문"}</dt>
-        <dd>
-          {row.targets}
-          <small>개</small>
         </dd>
       </div>
       <div>
@@ -229,67 +252,92 @@ function RowMetrics({ row, wrong }: { row: FrequentRow; wrong: number }) {
           <small>문항</small>
         </dd>
       </div>
+      <div>
+        <dt>미풀이</dt>
+        <dd>
+          {unanswered}
+          <small>문항</small>
+        </dd>
+      </div>
     </dl>
   );
 }
 
 function Coverage({ result }: { result: Analysis }) {
+  const diagnostics = result.diagnosticAnalysis;
   const lanes = [
     { key: "legacy" as const, label: "원문 근거 검증 기준" },
     { key: "source" as const, label: "강사 해설 인용 기준" },
-    { key: "reviewed" as const, label: "학습 쟁점 문맥 검토 기준" },
+    { key: "reviewed" as const, label: "학습 쟁점 의미 확인 기준" },
   ];
   return (
-    <section className="frequent-coverage" aria-label="선택 범위의 연결 현황">
-      <div className="frequent-section-heading">
-        <h2>선택 범위의 연결 현황</h2>
-        <span>고유 원본 {result.total.toLocaleString()}문항</span>
-      </div>
-      <div className="frequent-coverage-grid">
-        {lanes.map(({ key, label }) => {
-          const lane = result.lanes[key];
-          return (
-            <div className="frequent-coverage-item" key={key}>
-              <h3>{label}</h3>
-              <p>
-                <strong>{lane.covered.toLocaleString()}</strong> /{" "}
-                {lane.total.toLocaleString()}문항 <b>{lane.coverage}%</b>
-              </p>
-              <p className="frequent-meta">
-                미연결 {lane.unlinked.toLocaleString()}문항 · 지문{" "}
-                {lane.targets.toLocaleString()}개
-              </p>
-            </div>
-          );
-        })}
-      </div>
-      <p className="frequent-meta">
-        연결률은 하나 이상 해당 연결이 있는 원본 문항의 비율입니다. 모든 지문의
-        해설 완성률이 아니며, 세 기준의 문항은 서로 겹칠 수 있습니다.
-      </p>
-      <div className="frequent-statuses" aria-label="확인할 연결 상태">
-        <span>미식별·검토 {result.statuses.unknown.toLocaleString()}문항</span>
-        <span>보류 {result.statuses.hold.toLocaleString()}문항</span>
-        <span>충돌 {result.statuses.conflict.toLocaleString()}문항</span>
-        <span>버전 불일치 {result.statuses.stale.toLocaleString()}문항</span>
-      </div>
-      <p className="frequent-meta">
-        상태는 문항별로 셉니다. 한 문항이 여러 상태에 포함될 수 있으며,
-        미식별·보류·충돌·버전 불일치 연결은 확정 빈도에서 제외합니다.
-      </p>
-      {result.duplicates.length > 0 && (
-        <details className="frequent-duplicates">
-          <summary>
-            같은 원본 중복 {result.duplicates.length}건 · 내용 충돌{" "}
-            {result.ambiguous}건 제외
-          </summary>
-          <p>
-            같은 시험·과목·연도·회차·문항 번호는 한 번 셉니다. 여러 강사, 인용
-            중복, 재가져오기와 재풀이는 출제 수를 늘리지 않습니다.
-          </p>
-        </details>
-      )}
-    </section>
+    <details className="frequent-data-details">
+      <summary>데이터 상세 · 연결률·보류 상태</summary>
+      <section className="frequent-coverage" aria-label="선택 범위의 연결 현황">
+        <div className="frequent-section-heading">
+          <h2>선택 범위의 연결 현황</h2>
+          <span>고유 원본 {result.total.toLocaleString()}문항</span>
+        </div>
+        <div className="frequent-coverage-grid">
+          {lanes.map(({ key, label }) => {
+            const lane =
+              key === "reviewed"
+                ? result.lanes.reviewed
+                : diagnostics.lanes[key];
+            return (
+              <div className="frequent-coverage-item" key={key}>
+                <h3>{label}</h3>
+                <p>
+                  <strong>{lane.covered.toLocaleString()}</strong> /{" "}
+                  {lane.total.toLocaleString()}문항 <b>{lane.coverage}%</b>
+                </p>
+                <p className="frequent-meta">
+                  미연결 {lane.unlinked.toLocaleString()}문항 · 지문{" "}
+                  {lane.targets.toLocaleString()}개
+                </p>
+              </div>
+            );
+          })}
+        </div>
+        <p className="frequent-meta">
+          연결률은 하나 이상 해당 연결이 있는 원본 문항의 비율입니다. 모든
+          지문의 해설 완성률이 아니며, 세 기준의 문항은 서로 겹칠 수 있습니다.
+          출처 연결률을 학습 쟁점의 의미 분류 완료율로 사용하지 않습니다.
+        </p>
+        {[
+          { label: "의미 분류 상태", statuses: result.statuses },
+          { label: "기존 근거·출처 연결 상태", statuses: diagnostics.statuses },
+        ].map(({ label, statuses }) => (
+          <div className="frequent-statuses" aria-label={label} key={label}>
+            <strong>{label}</strong>
+            <span>
+              {label === "의미 분류 상태" ? "의미 미확인" : "미식별·검토"}{" "}
+              {statuses.unknown.toLocaleString()}문항
+            </span>
+            <span>보류 {statuses.hold.toLocaleString()}문항</span>
+            <span>충돌 {statuses.conflict.toLocaleString()}문항</span>
+            <span>버전 불일치 {statuses.stale.toLocaleString()}문항</span>
+          </div>
+        ))}
+        <p className="frequent-meta">
+          상태는 문항별로 셉니다. 한 문항이 여러 상태에 포함될 수 있으며, 의미
+          미확인·보류·충돌·버전 불일치 연결은 학습 쟁점 빈도에서 제외합니다.
+          인용 미식별은 의미 확인 여부와 별도로 관리합니다.
+        </p>
+        {result.duplicates.length > 0 && (
+          <details className="frequent-duplicates">
+            <summary>
+              같은 원본 중복 {result.duplicates.length}건 · 내용 충돌{" "}
+              {result.ambiguous}건 제외
+            </summary>
+            <p>
+              같은 시험·과목·연도·회차·문항 번호는 한 번 셉니다. 여러 강사, 인용
+              중복, 재가져오기와 재풀이는 출제 수를 늘리지 않습니다.
+            </p>
+          </details>
+        )}
+      </section>
+    </details>
   );
 }
 
@@ -334,49 +382,30 @@ function ReadingPanel({
   );
   return (
     <div className="frequent-reading">
-      <p className="frequent-reading-notice" role="status">
-        {row.reading.status === "source-only"
-          ? "인용 출처 확인 자료입니다. 이 출처의 여러 문항을 하나의 학습 쟁점으로 합치지 않습니다."
-          : row.reading.status === "reviewed-links-only"
-            ? "직접 검토한 연결과 확인 가능한 원문을 보여줍니다. 핵심 정리·조건·예외를 따로 작성한 정리집 본문은 아직 등록되지 않았습니다."
-            : "이 항목의 읽기 본문이 등록되지 않았습니다. 확인 가능한 출처와 관련 기출을 이용할 수 있습니다."}
-      </p>
-      <section aria-label="핵심 내용">
-        <h3>
-          핵심 내용 <span className="frequent-badge">정리 본문 미등록</span>
-        </h3>
-        {verified.length ? (
-          <>
-            <p className="frequent-meta">
-              기존 검증 자료의 원문 발췌입니다. 조건·예외를 합친 새 해설로
-              확대하지 않습니다.
-            </p>
-            {verified.map((excerpt) => (
-              <figure className="frequent-excerpt" key={excerpt.id}>
-                <figcaption>{excerpt.title} · 원문 검증 발췌</figcaption>
-                <blockquote>{excerpt.text}</blockquote>
-              </figure>
-            ))}
-          </>
-        ) : (
-          <p className="frequent-empty-copy">
-            별도로 작성된 핵심 정리와 검증 원문 발췌가 없습니다. 아래 문맥 검토
-            기록과 해설 문맥은 확인 가능한 범위만 표시합니다.
+      {verified.length > 0 && (
+        <section aria-label="확인한 원문 발췌">
+          <h3>확인한 원문 발췌</h3>
+          <p className="frequent-meta">
+            기존 검증 자료의 원문 발췌입니다. 조건·예외를 합친 새 해설로
+            확대하지 않습니다.
           </p>
-        )}
-      </section>
-      <section aria-label="조건과 예외">
-        <h3>
-          조건·예외 <span className="frequent-badge">별도 정리 미등록</span>
-        </h3>
-        <p className="frequent-empty-copy">
-          조건·예외를 분리해 확인한 정리 자료가 없습니다. 발췌만으로 적용 범위를
-          넓히거나 서로 다른 자료의 결론을 합치지 않습니다.
-        </p>
-      </section>
+          {verified.map((excerpt) => (
+            <figure className="frequent-excerpt" key={excerpt.id}>
+              <figcaption>{excerpt.title} · 원문 검증 발췌</figcaption>
+              <blockquote>{excerpt.text}</blockquote>
+            </figure>
+          ))}
+        </section>
+      )}
       {row.reading.notes.length > 0 && (
-        <section aria-label="직접 검토한 연결 기록">
-          <h3>직접 검토한 연결 기록</h3>
+        <details
+          className="frequent-review-record"
+          open={view.expanded.includes("review-record")}
+          onToggle={(event) =>
+            expand("review-record", event.currentTarget.open)
+          }
+        >
+          <summary>의미 연결 검토 기록 {row.reading.notes.length}개</summary>
           <ul className="frequent-review-notes">
             {row.reading.notes.map((note) => (
               <li key={note.id}>
@@ -388,7 +417,7 @@ function ReadingPanel({
               </li>
             ))}
           </ul>
-        </section>
+        </details>
       )}
       {contexts.length > 0 && (
         <section aria-label="확인한 해설 문맥">
@@ -425,20 +454,20 @@ function ReadingPanel({
           )}
         </section>
       )}
-      <section aria-label="기출 변형과 비교">
-        <h3>기출 변형·비교</h3>
-        <p className="frequent-meta">
-          실제 출제된 지문과 연결 검토 기록입니다. 출제 지문 자체가 옳은
-          명제라는 뜻은 아니며 정오 판단은 문제 화면에서 확인합니다.
-        </p>
-        {variants.length ? (
+      {variants.length > 0 && (
+        <section aria-label="기출 변형과 비교">
+          <h3>기출 변형·비교</h3>
+          <p className="frequent-meta">
+            실제 출제된 지문과 연결 검토 기록입니다. 출제 지문 자체가 옳은
+            명제라는 뜻은 아니며 정오 판단은 문제 화면에서 확인합니다.
+          </p>
           <ol className="frequent-variants">
             {variants.map((link) => (
               <li key={link.id}>
                 <strong>
                   {questionLabel(link.question)} · {targetLabel(link.selector)}
                 </strong>
-                {link.expectedText ? (
+                {link.selector && link.expectedText ? (
                   <blockquote>{link.expectedText}</blockquote>
                 ) : (
                   <p className="frequent-meta">
@@ -456,18 +485,18 @@ function ReadingPanel({
               </li>
             ))}
           </ol>
-        ) : (
-          <p>확인 가능한 기출 변형 연결이 없습니다.</p>
-        )}
-        {!view.showAllVariants && row.links.length > variants.length && (
-          <button onClick={() => onChange({ ...view, showAllVariants: true })}>
-            나머지 기출 연결 {row.links.length - variants.length}개 보기
-          </button>
-        )}
-      </section>
-      <section aria-label="읽기 자료의 출처">
-        <h3>출처</h3>
-        {row.reading.sources.length ? (
+          {!view.showAllVariants && row.links.length > variants.length && (
+            <button
+              onClick={() => onChange({ ...view, showAllVariants: true })}
+            >
+              나머지 기출 연결 {row.links.length - variants.length}개 보기
+            </button>
+          )}
+        </section>
+      )}
+      {row.reading.sources.length > 0 && (
+        <section aria-label="관련 해설·출처">
+          <h3>출처</h3>
           <ul className="frequent-sources">
             {row.reading.sources.map((source, index) => (
               <SourceReference
@@ -482,13 +511,8 @@ function ReadingPanel({
               />
             ))}
           </ul>
-        ) : (
-          <p>
-            현재 기기에서 확인 가능한 출처 본문이 없습니다. 자료가 도착하면 다시
-            확인할 수 있습니다.
-          </p>
-        )}
-      </section>
+        </section>
+      )}
     </div>
   );
 }
@@ -501,7 +525,7 @@ export function FrequentIssues({
   instructorPackages,
   handoff,
   libraryState,
-  viewState,
+  viewState: suppliedViewState,
   onViewStateChange,
   onViewQuestion,
   onPractice,
@@ -509,6 +533,53 @@ export function FrequentIssues({
 }: FrequentIssuesProps) {
   const active = activeSession(state);
   const hidden = active?.mode === "exam";
+  const eligible = useMemo(() => {
+    const removed = new Set(state.removedQuestionIds ?? []);
+    return state.data.questions.filter(
+      (question) =>
+        !removed.has(question.id) && isEligible(question, namespace),
+    );
+  }, [state.data.questions, state.removedQuestionIds, namespace]);
+  const subjects = Object.entries(subjectLabels).filter(([id]) =>
+    eligible.some((question) => question.subjectId === id),
+  );
+  const defaultSubject = subjects[0]?.[0] ?? "constitution";
+  const viewState = useMemo(
+    () => normalizeFrequentViewState(suppliedViewState, defaultSubject),
+    [suppliedViewState, defaultSubject],
+  );
+  useEffect(() => {
+    if (JSON.stringify(suppliedViewState) !== JSON.stringify(viewState))
+      onViewStateChange(viewState);
+  }, [suppliedViewState, viewState, onViewStateChange]);
+  useEffect(() => {
+    const subjectId = viewState.filter.subjectId;
+    if (
+      !eligible.length ||
+      !subjectId ||
+      eligible.some((question) => question.subjectId === subjectId)
+    )
+      return;
+    onViewStateChange({
+      ...viewState,
+      filter: { ...viewState.filter, subjectId: defaultSubject, unitId: "" },
+      selectedKey: "",
+      detailOpen: false,
+      page: 0,
+      detailScroll: 0,
+    });
+  }, [eligible, defaultSubject, viewState, onViewStateChange]);
+  const rootRef = useRef<HTMLElement>(null);
+  const [narrow, setNarrow] = useState(window.innerWidth <= 850);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const observer = new ResizeObserver(([entry]) =>
+      setNarrow(entry.contentRect.width <= 850),
+    );
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [hidden]);
   const [loaded, setLoaded] = useState<{
     input: Parameters<typeof getFrequentIssuesIndex>[0];
     index: FrequentIndex;
@@ -519,6 +590,7 @@ export function FrequentIssues({
   } | null>(null);
   const detailRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null);
   const viewRef = useRef(viewState);
   const changeRef = useRef(onViewStateChange);
   viewRef.current = viewState;
@@ -567,9 +639,19 @@ export function FrequentIssues({
     loaded?.input === input && !libraryState.loading && !libraryState.error
       ? loaded.index
       : null;
+  const filter = useMemo(
+    () => viewState.filter,
+    [
+      viewState.filter.subjectId,
+      viewState.filter.unitId,
+      viewState.filter.examCode,
+      viewState.filter.year,
+      viewState.filter.round,
+    ],
+  );
   const result = useMemo(
-    () => (index ? analyzeFrequentIssues(index, viewState.filter) : null),
-    [index, viewState.filter],
+    () => (index ? analyzeUnifiedFrequentIssues(index, filter) : null),
+    [index, filter],
   );
   const error = failure?.input === input ? failure.message : "";
   useEffect(() => {
@@ -578,9 +660,13 @@ export function FrequentIssues({
     const saved = viewRef.current.scrollY;
     let nextFrame = 0;
     const frame = requestAnimationFrame(() => {
-      nextFrame = requestAnimationFrame(() =>
-        window.scrollTo({ top: saved, behavior: "instant" }),
-      );
+      nextFrame = requestAnimationFrame(() => {
+        window.scrollTo({ top: saved, behavior: "instant" });
+        if (listRef.current)
+          listRef.current.scrollTop = viewRef.current.listPaneScroll;
+        if (detailRef.current)
+          detailRef.current.scrollTop = viewRef.current.detailScroll;
+      });
     });
     return () => {
       cancelAnimationFrame(frame);
@@ -594,17 +680,36 @@ export function FrequentIssues({
       timer = setTimeout(() => {
         timer = undefined;
         const latest = viewRef.current;
-        if (Math.abs(window.scrollY - latest.scrollY) > 2)
-          changeRef.current({ ...latest, scrollY: window.scrollY });
+        const listPaneScroll =
+          listRef.current?.scrollTop ?? latest.listPaneScroll;
+        const detailScroll =
+          detailRef.current?.scrollTop ?? latest.detailScroll;
+        if (
+          Math.abs(window.scrollY - latest.scrollY) > 2 ||
+          Math.abs(listPaneScroll - latest.listPaneScroll) > 2 ||
+          Math.abs(detailScroll - latest.detailScroll) > 2
+        )
+          changeRef.current({
+            ...latest,
+            scrollY: window.scrollY,
+            listPaneScroll,
+            detailScroll,
+          });
       }, 180);
     };
     window.addEventListener("scroll", save, { passive: true });
+    const list = listRef.current;
+    const detail = detailRef.current;
+    list?.addEventListener("scroll", save, { passive: true });
+    detail?.addEventListener("scroll", save, { passive: true });
     return () => {
       window.removeEventListener("scroll", save);
+      list?.removeEventListener("scroll", save);
+      detail?.removeEventListener("scroll", save);
       if (timer) clearTimeout(timer);
     };
-  }, [hidden]);
-  const wrongSources = useMemo(() => {
+  }, [hidden, !!result]);
+  const outcomes = useMemo(() => {
     const questions = new Map(
       state.data.questions.map((question) => [question.id, question]),
     );
@@ -614,30 +719,28 @@ export function FrequentIssues({
       if (question && attempt.gradingRevision === question.gradingRevision)
         outcomes.set(sourceKey(question), attempt.result);
     }
-    return new Set(
-      [...outcomes]
-        .filter(([, outcome]) => outcome === "incorrect")
-        .map(([key]) => key),
-    );
+    return outcomes;
   }, [state.data.questions, state.attempts]);
-  const eligible = useMemo(() => {
-    const removed = new Set(state.removedQuestionIds ?? []);
-    return state.data.questions.filter(
-      (question) =>
-        !removed.has(question.id) && isEligible(question, namespace),
-    );
-  }, [state.data.questions, state.removedQuestionIds, namespace]);
   const wrongFor = (row: FrequentRow) =>
-    row.related.filter((question) => wrongSources.has(sourceKey(question)));
+    row.related.filter(
+      (question) => outcomes.get(sourceKey(question)) === "incorrect",
+    );
+  const unansweredFor = (row: FrequentRow) =>
+    row.related.filter((question) => !outcomes.has(sourceKey(question)));
   const patch = (value: Partial<FrequentViewState>) =>
     onViewStateChange({ ...viewRef.current, ...value });
+  const currentPosition = () => ({
+    scrollY: window.scrollY,
+    listPaneScroll: listRef.current?.scrollTop ?? viewState.listPaneScroll,
+    detailScroll: detailRef.current?.scrollTop ?? viewState.detailScroll,
+  });
   const openQuestion = (id: string) => {
-    patch({ scrollY: window.scrollY });
+    patch(currentPosition());
     onViewQuestion(id);
   };
   const practice = (questions: Question[]) => {
     if (active || !questions.length) return;
-    patch({ scrollY: window.scrollY });
+    patch(currentPosition());
     onPractice(questions.map((question) => question.id));
   };
   const changeFilter = (value: Partial<FrequentFilter>) =>
@@ -646,6 +749,9 @@ export function FrequentIssues({
       page: 0,
       selectedKey: "",
       mode: "questions",
+      detailOpen: false,
+      listPaneScroll: 0,
+      detailScroll: 0,
     });
   const choices = (field: "examCode" | "year" | "round") =>
     Array.from(
@@ -662,29 +768,77 @@ export function FrequentIssues({
   const selected = result?.rows.find(
     (row) => row.key === viewState.selectedKey,
   );
-  const kindRows =
-    result?.rows.filter((row) => row.kind === viewState.kind) ?? [];
+  const rows = result?.rows ?? [];
   const search = viewState.search.trim().toLocaleLowerCase("ko");
-  const visibleRows = kindRows.filter(
-    (row) => !search || row.title.toLocaleLowerCase("ko").includes(search),
+  const visibleRows = rows.filter(
+    (row) =>
+      !search ||
+      [row.title, ...row.aliases].some((title) =>
+        title.toLocaleLowerCase("ko").includes(search),
+      ),
   );
+  const ranks = new Map<string, number>();
+  const groupCounts = new Map<string, number>();
+  for (const row of rows) {
+    const group = `${row.subjectId}:${row.classificationLevel}`;
+    const rank = (groupCounts.get(group) ?? 0) + 1;
+    groupCounts.set(group, rank);
+    ranks.set(row.key, rank);
+  }
   const pageSize = 24;
   const pages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
   const page = Math.min(Math.max(viewState.page, 0), pages - 1);
   const pageRows = visibleRows.slice(page * pageSize, (page + 1) * pageSize);
+  const pageGroups = pageRows.reduce<
+    {
+      subjectId: FrequentRow["subjectId"];
+      level: FrequentRow["classificationLevel"];
+      rows: FrequentRow[];
+    }[]
+  >((groups, row) => {
+    const group = groups.find(
+      (group) =>
+        group.subjectId === row.subjectId &&
+        group.level === row.classificationLevel,
+    );
+    if (group) group.rows.push(row);
+    else
+      groups.push({
+        subjectId: row.subjectId,
+        level: row.classificationLevel,
+        rows: [row],
+      });
+    return groups;
+  }, []);
   const selectRow = (row: FrequentRow, mode: FrequentViewState["mode"]) => {
     patch({
       selectedKey: row.key,
       mode,
-      scrollY: window.scrollY,
+      ...currentPosition(),
+      listScrollY:
+        viewState.detailOpen && narrow ? viewState.listScrollY : window.scrollY,
+      detailOpen: true,
+      detailScroll: 0,
       reading:
         row.key === viewState.selectedKey
           ? viewState.reading
           : emptyReadingView(),
     });
-    requestAnimationFrame(() =>
-      detailRef.current?.scrollIntoView({ block: "start" }),
-    );
+    requestAnimationFrame(() => {
+      if (detailRef.current) detailRef.current.scrollTop = 0;
+      if (narrow) window.scrollTo({ top: 0, behavior: "instant" });
+      detailHeadingRef.current?.focus({ preventScroll: true });
+    });
+  };
+  const returnToList = () => {
+    patch({ detailOpen: false, scrollY: viewState.listScrollY });
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: viewState.listScrollY, behavior: "instant" });
+      if (listRef.current) listRef.current.scrollTop = viewState.listPaneScroll;
+      listRef.current
+        ?.querySelector<HTMLButtonElement>(".is-selected h3 button")
+        ?.focus({ preventScroll: true });
+    });
   };
 
   if (hidden)
@@ -701,118 +855,131 @@ export function FrequentIssues({
     );
 
   return (
-    <section className="frequent-issues" aria-label="빈출 쟁점">
-      <header className="frequent-heading">
-        <div>
-          <h1>빈출 쟁점</h1>
-        </div>
-        <p>과목·단원을 골라 관련 기출을 확인하고 바로 풀 수 있습니다.</p>
-      </header>
-      <p className="frequent-meta">
-        {namespace === "demo"
-          ? "시연 자료의 집계입니다. 실제 출제 통계가 아닙니다. "
-          : "등록된 원본과 현재 버전이 맞는 연결을 집계합니다. "}
-        출제 문제 수는 개인 풀이 횟수와 구분하며, 미래 출제 확률을 뜻하지
-        않습니다.
-      </p>
-      <div
-        className="frequent-filters"
-        role="group"
-        aria-label="빈출 쟁점 범위"
-      >
-        <label>
-          과목
-          <select
-            aria-label="과목"
-            value={viewState.filter.subjectId}
-            onChange={(event) =>
-              changeFilter({ subjectId: event.target.value, unitId: "" })
-            }
-          >
-            <option value="">전체 과목</option>
-            {Object.entries(subjectLabels)
-              .filter(([id]) =>
-                eligible.some((question) => question.subjectId === id),
-              )
-              .map(([id, label]) => (
+    <section
+      className={`frequent-issues${viewState.detailOpen && selected ? " is-detail-open" : ""}`}
+      aria-label="빈출 쟁점"
+      ref={rootRef}
+    >
+      <div className="frequent-overview">
+        <header className="frequent-heading">
+          <div>
+            <h1>빈출 쟁점</h1>
+          </div>
+          <p>과목·단원을 골라 관련 기출을 확인하고 바로 풀 수 있습니다.</p>
+        </header>
+        <p className="frequent-meta">
+          {namespace === "demo"
+            ? "시연 자료의 집계입니다. 실제 출제 통계가 아닙니다. "
+            : "등록된 원본과 현재 버전이 맞는 연결을 집계합니다. "}
+          출제 문제 수는 개인 풀이 횟수와 구분하며, 미래 출제 확률을 뜻하지
+          않습니다.
+        </p>
+        <div
+          className="frequent-filters"
+          role="group"
+          aria-label="빈출 쟁점 범위"
+        >
+          <label>
+            과목
+            <select
+              aria-label="과목"
+              value={viewState.filter.subjectId}
+              onChange={(event) =>
+                changeFilter({ subjectId: event.target.value, unitId: "" })
+              }
+            >
+              <option value="">전체 과목</option>
+              {!subjects.length && viewState.filter.subjectId && (
+                <option value={viewState.filter.subjectId}>
+                  {Object.entries(subjectLabels).find(
+                    ([id]) => id === viewState.filter.subjectId,
+                  )?.[1] ?? "헌법"}
+                </option>
+              )}
+              {subjects.map(([id, label]) => (
                 <option value={id} key={id}>
                   {label}
                 </option>
               ))}
-          </select>
-        </label>
-        <label className="frequent-unit-filter">
-          기존 단원
-          <select
-            aria-label="기존 단원"
-            value={viewState.filter.unitId}
-            onChange={(event) => changeFilter({ unitId: event.target.value })}
-          >
-            <option value="">전체 단원</option>
-            {Array.from(
-              new Set(
-                units
-                  .filter(
-                    (unit) =>
-                      !viewState.filter.subjectId ||
-                      unit.subjectId === viewState.filter.subjectId,
-                  )
-                  .map((unit) => unit.group),
-              ),
-            ).map((group) => (
-              <optgroup label={group} key={group}>
-                {units
-                  .filter(
-                    (unit) =>
-                      unit.group === group &&
-                      (!viewState.filter.subjectId ||
-                        unit.subjectId === viewState.filter.subjectId),
-                  )
-                  .map((unit) => (
-                    <option value={unit.code} key={unit.code}>
-                      {viewState.filter.subjectId
-                        ? ""
-                        : `${subjectLabels[unit.subjectId]} · `}
-                      {unit.title}
-                    </option>
-                  ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
-        {(["examCode", "year", "round"] as const).map((field) => (
-          <label key={field}>
-            {field === "examCode" ? "시험" : field === "year" ? "연도" : "회차"}
+            </select>
+          </label>
+          <label className="frequent-unit-filter">
+            기존 단원
             <select
-              aria-label={
-                field === "examCode"
-                  ? "시험"
-                  : field === "year"
-                    ? "연도"
-                    : "회차"
-              }
-              value={viewState.filter[field]}
-              onChange={(event) =>
-                changeFilter({ [field]: event.target.value })
-              }
+              aria-label="기존 단원"
+              value={viewState.filter.unitId}
+              onChange={(event) => changeFilter({ unitId: event.target.value })}
             >
-              <option value="">전체</option>
-              {choices(field).map((value) => (
-                <option value={value} key={value}>
-                  {field === "examCode"
-                    ? value === "po"
-                      ? "순경"
-                      : value === "lieut"
-                        ? "경위"
-                        : "시연"
-                    : field === "year"
-                      ? `${value}년`
-                      : `${value}차`}
-                </option>
+              <option value="">전체 단원</option>
+              {Array.from(
+                new Set(
+                  units
+                    .filter(
+                      (unit) =>
+                        !viewState.filter.subjectId ||
+                        unit.subjectId === viewState.filter.subjectId,
+                    )
+                    .map((unit) => unit.group),
+                ),
+              ).map((group) => (
+                <optgroup label={group} key={group}>
+                  {units
+                    .filter(
+                      (unit) =>
+                        unit.group === group &&
+                        (!viewState.filter.subjectId ||
+                          unit.subjectId === viewState.filter.subjectId),
+                    )
+                    .map((unit) => (
+                      <option value={unit.code} key={unit.code}>
+                        {viewState.filter.subjectId
+                          ? ""
+                          : `${subjectLabels[unit.subjectId]} · `}
+                        {unit.title}
+                      </option>
+                    ))}
+                </optgroup>
               ))}
             </select>
           </label>
-        ))}
+          {(["examCode", "year", "round"] as const).map((field) => (
+            <label key={field}>
+              {field === "examCode"
+                ? "시험"
+                : field === "year"
+                  ? "연도"
+                  : "회차"}
+              <select
+                aria-label={
+                  field === "examCode"
+                    ? "시험"
+                    : field === "year"
+                      ? "연도"
+                      : "회차"
+                }
+                value={viewState.filter[field]}
+                onChange={(event) =>
+                  changeFilter({ [field]: event.target.value })
+                }
+              >
+                <option value="">전체</option>
+                {choices(field).map((value) => (
+                  <option value={value} key={value}>
+                    {field === "examCode"
+                      ? value === "po"
+                        ? "순경"
+                        : value === "lieut"
+                          ? "경위"
+                          : "시연"
+                      : field === "year"
+                        ? `${value}년`
+                        : `${value}차`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
       </div>
       {libraryState.loading && (
         <p role="status">연결·해설 자료를 불러오는 중…</p>
@@ -839,109 +1006,114 @@ export function FrequentIssues({
               {!handoff &&
                 !legacyPackages.some((pack) => pack.dataKind === namespace) && (
                   <p className="frequent-reading-notice" role="status">
-                    연결 자료가 등록되지 않았습니다. 강사 해설의 인용·쟁점은
-                    별도의 연결 자료를 확인한 뒤 표시합니다. 현재 0건은 중요도가
-                    낮다는 뜻이 아닙니다.
+                    연결 자료가 등록되지 않았습니다. 문항·해설에서 의미를 확인한
+                    연결 자료가 도착하면 학습 쟁점으로 표시합니다. 현재 0건은
+                    중요도가 낮다는 뜻이 아닙니다.
                   </p>
                 )}
-              <Coverage result={result} />
-              <div
-                className="frequent-kind-buttons"
-                role="group"
-                aria-label="연결 기준 선택"
-              >
-                {rowKinds.map(({ kind, title }) => (
-                  <button
-                    key={kind}
-                    aria-pressed={viewState.kind === kind}
-                    onClick={() =>
-                      patch({
-                        kind,
-                        selectedKey: "",
-                        page: 0,
-                        mode: "questions",
-                      })
-                    }
-                  >
-                    {title}
-                    <span>
-                      {result.rows
-                        .filter((row) => row.kind === kind)
-                        .length.toLocaleString()}
-                    </span>
-                  </button>
-                ))}
+              <div className="frequent-analysis-summary">
+                <p className="frequent-semantic-coverage" role="status">
+                  의미 확인 {result.covered.toLocaleString()} /{" "}
+                  {result.total.toLocaleString()}문항 · 학습 쟁점{" "}
+                  {result.rows.length.toLocaleString()}개
+                  <span>
+                    현재 확인한 범위이며, 미연결은 미출제를 뜻하지 않습니다.
+                  </span>
+                </p>
+                <Coverage result={result} />
               </div>
-              <p className="frequent-kind-description">
-                {
-                  rowKinds.find(({ kind }) => kind === viewState.kind)
-                    ?.description
-                }
-              </p>
               <div className="frequent-workspace">
                 <div className="frequent-list-area" ref={listRef}>
                   <label className="frequent-search">
-                    {viewState.kind === "authority"
-                      ? "출처 제목 찾기"
-                      : "쟁점·근거 제목 찾기"}
+                    쟁점·별칭 검색
                     <input
                       type="search"
                       value={viewState.search}
-                      placeholder="제목으로 찾기"
+                      placeholder="쟁점명 또는 별칭으로 찾기"
                       onChange={(event) =>
-                        patch({ search: event.target.value, page: 0 })
+                        patch({
+                          search: event.target.value,
+                          page: 0,
+                          detailOpen: false,
+                        })
                       }
                     />
                   </label>
                   <p className="frequent-list-count" role="status">
-                    {visibleRows.length.toLocaleString()}개 항목 · 출제 문제
-                    수가 많은 순서
+                    {visibleRows.length.toLocaleString()}개 쟁점 · 같은 분류
+                    수준에서 문항 수 → 반복 회차 → 최근 출제 순
                   </p>
                   {!pageRows.length && (
                     <div className="frequent-empty">
                       <h2>
                         {search
                           ? "검색한 제목이 없습니다"
-                          : "이 범위의 연결이 없습니다"}
+                          : "이 범위의 의미 확인 쟁점이 없습니다"}
                       </h2>
                       <p>
                         {search
-                          ? "다른 검색어나 연결 기준을 선택하세요."
-                          : "과목·단원·시험 범위를 바꾸거나 연결 자료를 확인하세요. 미연결을 미출제로 해석하지 않습니다."}
+                          ? "다른 쟁점명이나 별칭으로 검색하세요."
+                          : "과목·단원·시험 범위를 바꾸거나 데이터 상세를 확인하세요."}
                       </p>
                     </div>
                   )}
-                  <ol className="frequent-topic-list">
-                    {pageRows.map((row) => (
-                      <li
-                        className={`frequent-topic-card${selected?.key === row.key ? " is-selected" : ""}`}
-                        key={row.key}
-                      >
-                        <h2>
-                          <button
-                            aria-pressed={selected?.key === row.key}
-                            onClick={() => selectRow(row, "questions")}
+                  {pageGroups.map(({ subjectId, level, rows: groupRows }) => (
+                    <section
+                      className="frequent-level-group"
+                      key={`${subjectId}:${level}`}
+                      aria-label={`${subjectLabels[subjectId]} · ${classificationLabels[level]} 순위`}
+                    >
+                      <h2 className="frequent-level-heading">
+                        {subjectLabels[subjectId]} ·{" "}
+                        {classificationLabels[level]} 순위
+                      </h2>
+                      <ol className="frequent-topic-list">
+                        {groupRows.map((row) => (
+                          <li
+                            className={`frequent-topic-card${selected?.key === row.key ? " is-selected" : ""}`}
+                            key={row.key}
                           >
-                            {row.title}
-                          </button>
-                        </h2>
-                        <RowMetrics row={row} wrong={wrongFor(row).length} />
-                        <p className="frequent-meta">
-                          최근 {row.latest}
-                          {row.wholeQuestions > 0 &&
-                            ` · 문항 전체 연결 ${row.wholeQuestions}개`}
-                        </p>
-                        <div className="frequent-card-actions">
-                          <button onClick={() => selectRow(row, "questions")}>
-                            관련 기출 보기
-                          </button>
-                          <button onClick={() => selectRow(row, "reading")}>
-                            읽기 자료
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
+                            <h3>
+                              <span
+                                className="frequent-rank"
+                                aria-label={`${ranks.get(row.key)}위`}
+                              >
+                                {ranks.get(row.key)}
+                              </span>
+                              <button
+                                aria-pressed={selected?.key === row.key}
+                                onClick={() => selectRow(row, "questions")}
+                              >
+                                {row.title}
+                              </button>
+                            </h3>
+                            <RowMetrics
+                              row={row}
+                              wrong={wrongFor(row).length}
+                              unanswered={unansweredFor(row).length}
+                            />
+                            <p className="frequent-meta">
+                              최근 출제 {row.latest}
+                            </p>
+                            <div className="frequent-card-actions">
+                              <button
+                                onClick={() => selectRow(row, "questions")}
+                              >
+                                관련 기출 보기
+                              </button>
+                              <button
+                                className="primary"
+                                disabled={!!active || !row.related.length}
+                                onClick={() => practice(row.related)}
+                              >
+                                바로 풀기
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
+                  ))}
                   {pages > 1 && (
                     <nav
                       className="frequent-pagination"
@@ -950,8 +1122,10 @@ export function FrequentIssues({
                       <button
                         disabled={page === 0}
                         onClick={() => {
-                          patch({ page: page - 1 });
-                          listRef.current?.scrollIntoView({ block: "start" });
+                          patch({ page: page - 1, listPaneScroll: 0 });
+                          if (listRef.current) listRef.current.scrollTop = 0;
+                          if (narrow)
+                            listRef.current?.scrollIntoView({ block: "start" });
                         }}
                       >
                         이전
@@ -962,8 +1136,10 @@ export function FrequentIssues({
                       <button
                         disabled={page + 1 >= pages}
                         onClick={() => {
-                          patch({ page: page + 1 });
-                          listRef.current?.scrollIntoView({ block: "start" });
+                          patch({ page: page + 1, listPaneScroll: 0 });
+                          if (listRef.current) listRef.current.scrollTop = 0;
+                          if (narrow)
+                            listRef.current?.scrollIntoView({ block: "start" });
                         }}
                       >
                         다음
@@ -974,32 +1150,32 @@ export function FrequentIssues({
                 <section
                   className="frequent-detail"
                   ref={detailRef}
-                  aria-label="선택한 쟁점의 관련 기출과 읽기 자료"
+                  aria-label="선택한 쟁점의 관련 기출과 해설·출처"
                 >
                   {selected ? (
                     <>
+                      <button className="frequent-back" onClick={returnToList}>
+                        ← 쟁점 목록으로 돌아가기
+                      </button>
                       <p className="frequent-eyebrow">
-                        {
-                          rowKinds.find(({ kind }) => kind === selected.kind)
-                            ?.title
-                        }
+                        {subjectLabels[selected.subjectId]} ·{" "}
+                        {classificationLabels[selected.classificationLevel]}{" "}
+                        순위 {ranks.get(selected.key)}위
                       </p>
-                      <h2>{selected.title}</h2>
+                      <h2 tabIndex={-1} ref={detailHeadingRef}>
+                        {selected.title}
+                      </h2>
                       <RowMetrics
                         row={selected}
                         wrong={wrongFor(selected).length}
+                        unanswered={unansweredFor(selected).length}
                       />
                       <p className="frequent-meta">
                         최근 출제 {selected.latest}
+                        {` · 의미 확인 지문 ${selected.targets}개`}
                         {selected.wholeQuestions > 0 &&
                           ` · 문항 전체 연결 ${selected.wholeQuestions}개는 등장 지문 수에 포함하지 않습니다.`}
                       </p>
-                      {selected.kind === "authority" && (
-                        <p className="frequent-meta">
-                          해설 범위 지문은 인용이 실린 해설의 대상 범위입니다.
-                          해당 학습 쟁점을 확인한 지문 수와 구분합니다.
-                        </p>
-                      )}
                       <div className="frequent-practice-actions">
                         <button
                           className="primary"
@@ -1031,19 +1207,23 @@ export function FrequentIssues({
                       <div
                         className="frequent-detail-buttons"
                         role="group"
-                        aria-label="기출과 읽기 자료 선택"
+                        aria-label="쟁점 상세 보기"
                       >
                         <button
                           aria-pressed={viewState.mode === "questions"}
-                          onClick={() => patch({ mode: "questions" })}
+                          onClick={() =>
+                            patch({ mode: "questions", detailScroll: 0 })
+                          }
                         >
                           관련 기출
                         </button>
                         <button
                           aria-pressed={viewState.mode === "reading"}
-                          onClick={() => patch({ mode: "reading" })}
+                          onClick={() =>
+                            patch({ mode: "reading", detailScroll: 0 })
+                          }
                         >
-                          읽기 자료
+                          관련 해설·출처
                         </button>
                       </div>
                       {viewState.mode === "reading" ? (
@@ -1060,10 +1240,14 @@ export function FrequentIssues({
                             <li key={question.id}>
                               <div>
                                 <strong>{questionLabel(question)}</strong>
-                                {wrongSources.has(sourceKey(question)) && (
+                                {outcomes.get(sourceKey(question)) ===
+                                  "incorrect" && (
                                   <span className="frequent-badge is-wrong">
                                     개인 오답
                                   </span>
+                                )}
+                                {!outcomes.has(sourceKey(question)) && (
+                                  <span className="frequent-badge">미풀이</span>
                                 )}
                               </div>
                               <button onClick={() => openQuestion(question.id)}>
@@ -1079,7 +1263,7 @@ export function FrequentIssues({
                       <p className="frequent-eyebrow">
                         쟁점 → 관련 기출 → 바로 풀기
                       </p>
-                      <h2>확인할 항목을 선택하세요</h2>
+                      <h2>확인할 쟁점을 선택하세요</h2>
                       <p>
                         관련 기출과 개인 오답을 모아 풀고, 같은 연결에 등록된
                         원문·해설 문맥을 읽을 수 있습니다.

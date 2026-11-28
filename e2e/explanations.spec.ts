@@ -23,7 +23,7 @@ async function setup(p: Page) {
     p.getByText("검증한 해설 자료를 저장했습니다.", { exact: true }),
   ).toBeVisible();
 }
-test("해설 가져오기·재가져오기·잘못된 참조 거부·내보내기와 출제 빈도 합집합을 확인한다", async ({
+test("해설 가져오기·재가져오기·잘못된 참조 거부·내보내기와 원문 연결 상세 보존을 확인한다", async ({
   page: p,
 }) => {
   await setup(p);
@@ -52,56 +52,37 @@ test("해설 가져오기·재가져오기·잘못된 참조 거부·내보내�
       .explanations,
   ).toHaveLength(6);
   await p.getByRole("button", { name: "근거·출제 빈도", exact: true }).click();
-  await p.getByRole("button", { name: /^원문 검증 근거/ }).click();
-  const row = p
-    .locator(".frequent-topic-card")
-    .filter({ hasText: "중립 도형 안내 A" });
-  await expect(row).toBeVisible();
-  expect((await row.locator("dd").allTextContents()).slice(0, 3)).toEqual([
-    "2문항",
-    "2회",
-    "4개",
-  ]);
-  await expect(row).toContainText("최근 2026년 1차");
-  await expect(p.locator(".frequent-coverage-item").first()).toContainText(
-    /2\s*\/\s*100문항\s*2%/,
+  await expect(p.locator(".frequent-topic-card")).toHaveCount(0);
+  await expect(p.locator(".frequent-semantic-coverage")).toContainText(
+    "의미 확인 0 / 20문항",
   );
-  await p.getByRole("button", { name: /^원문 검증 쟁점/ }).click();
-  const issue = p
-    .locator(".frequent-topic-card")
-    .filter({ hasText: "색깔 확인" });
-  expect((await issue.locator("dd").allTextContents()).slice(0, 3)).toEqual([
-    "1문항",
-    "1회",
-    "2개",
-  ]);
+  await expect(
+    p.getByRole("group", { name: "연결 기준 선택", exact: true }),
+  ).toHaveCount(0);
+  await p.locator(".frequent-data-details > summary").click();
+  await expect(p.locator(".frequent-coverage-item").first()).toContainText(
+    /2\s*\/\s*20문항\s*10%/,
+  );
   await p.reload();
   await p.getByRole("button", { name: "근거·출제 빈도", exact: true }).click();
+  await p.locator(".frequent-data-details > summary").click();
   await expect(p.locator(".frequent-coverage-item").first()).toContainText(
-    /2\s*\/\s*100문항/,
+    /2\s*\/\s*20문항/,
   );
 });
-test("제출 후만 등록된 해설·발췌를 오프라인 열람하고 관련 기출 이동·필기 배치를 보존한다", async ({
+test("제출 후만 등록된 해설·발췌를 오프라인 열람하고 필기 배치를 보존한다", async ({
   page: p,
   context,
 }) => {
   await setup(p);
-  await p.getByRole("button", { name: "근거·출제 빈도", exact: true }).click();
-  await p.getByRole("button", { name: /^원문 검증 근거/ }).click();
+  await p.getByRole("button", { name: "일반 학습", exact: true }).click();
   await p
-    .locator(".frequent-topic-card")
-    .filter({ hasText: "중립 도형 안내 A" })
-    .getByRole("button", { name: "관련 기출 보기", exact: true })
-    .click();
+    .getByRole("combobox", { name: "연도", exact: true })
+    .selectOption("2026");
   await p
-    .locator(".frequent-detail")
-    .getByRole("button", { name: "관련 원문 보기", exact: true })
-    .first()
-    .click();
-  await p
-    .getByRole("button", { name: "이 기출 풀기", exact: true })
-    .first()
-    .click();
+    .getByRole("combobox", { name: "순서", exact: true })
+    .selectOption("ordered");
+  await p.getByRole("button", { name: "시작하기", exact: true }).click();
   await expect(p.locator(".explanation-panel")).toHaveCount(0);
   const paper = p.locator('.ink-surface[data-ink-surface="paper"]');
   await expect(paper).toHaveAttribute("data-ink-ready", "true");
@@ -296,6 +277,7 @@ for (const namespace of ["demo", "real"] as const) {
       .getByRole("button", { name: "근거·출제 빈도", exact: true })
       .click();
     await expect(p.getByText(/연결 자료가 등록되지 않았습니다/)).toBeVisible();
+    await p.locator(".frequent-data-details > summary").click();
     await expect(p.locator(".frequent-coverage-item").first()).toContainText(
       /0\s*\/\s*\d+문항\s*0%/,
     );

@@ -111,8 +111,7 @@ async function library(page: Page, owner = OWNER) {
 
 async function importInstructor(page: Page, pkg: Awaited<ReturnType<typeof explanationSyncFixture>>["instructor"]) {
   const settings = page.getByRole("button", { name: "데이터·설정", exact: true });
-  const menu = page.getByRole("button", { name: "메뉴", exact: true });
-  if (!(await settings.isVisible())) await menu.click();
+  // Both imports use the desktop PC viewport; click waits for app bootstrap.
   await settings.click();
   await page.getByLabel("강사 해설 JSON 가져오기", { exact: true }).setInputFiles({
     name: "TEST_ONLY.instructor.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(pkg)),

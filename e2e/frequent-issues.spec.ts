@@ -1,6 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+  frequentContentSha256,
+  frequentQuestionText,
+} from "../src/original/frequent/contract";
 
 const fixture = (name: string) => resolve("tests/fixtures/explanations", name);
 const topicTitle = "시연 도형의 모양과 표시 비교";
@@ -9,7 +13,7 @@ const reviewedNote =
 const excerptText = "시연 도형의 색깔과 모양을 차례로 살펴봅니다.";
 
 /** Only the existing nonlegal demo fixtures are used; no actual exam payloads. */
-function syntheticHandoff() {
+function syntheticHandoff(topicCount = 1) {
   const questions = JSON.parse(
     readFileSync(fixture("questions.demo.json"), "utf8"),
   );
@@ -90,28 +94,28 @@ function syntheticHandoff() {
     },
     authorityCatalog: [],
     sourceCitationOccurrences: [],
-    reviewedLearningTopics: [
-      {
-        id: "TEST_ONLY_reviewed_shapes",
-        title: topicTitle,
-        subjectId: "constitution",
-        basis: "context_review_of_existing_explanation_and_target",
-        frequency: {
-          questions: 2,
-          rounds: 2,
-          targets: 3,
-          latest: "2026년 1차",
-          questionIds: ["demo_const_1", "demo_const_2"],
-        },
-        links: reviewed.map((record: any) => ({
-          ...record,
-          evidenceLane: "legacy_verified",
-          reviewedIssueIds: ["demo-issue-A1"],
-          semanticReason: reviewedNote,
-          instructorEvidence: [],
-        })),
+    // Extra nonlegal demo rows exercise scrolling/pagination only.
+    reviewedLearningTopics: Array.from({ length: topicCount }, (_, index) => ({
+      id: `TEST_ONLY_reviewed_shapes_${index}`,
+      title:
+        topicCount === 1 ? topicTitle : `${topicTitle} · 시연 ${index + 1}`,
+      subjectId: "constitution",
+      basis: "context_review_of_existing_explanation_and_target",
+      frequency: {
+        questions: 2,
+        rounds: 2,
+        targets: 3,
+        latest: "2026년 1차",
+        questionIds: ["demo_const_1", "demo_const_2"],
       },
-    ],
+      links: reviewed.map((record: any) => ({
+        ...record,
+        evidenceLane: "legacy_verified",
+        reviewedIssueIds: ["demo-issue-A1"],
+        semanticReason: reviewedNote,
+        instructorEvidence: [],
+      })),
+    })),
   };
 }
 
@@ -123,7 +127,12 @@ async function navigate(page: Page, name: string) {
   await button.click();
 }
 
-async function setup(page: Page) {
+async function setup(
+  page: Page,
+  topicCount = 1,
+  declaredLevels = false,
+  wholeQuestion = false,
+) {
   await page.goto("/?view=original&mode=demo");
   await navigate(page, "데이터·설정");
   await page
@@ -145,12 +154,76 @@ async function setup(page: Page) {
   await expect(
     page.getByText("검증한 해설 자료를 저장했습니다.", { exact: true }),
   ).toBeVisible();
+  const legacyHandoff = syntheticHandoff(topicCount);
+  const handoff = declaredLevels
+    ? {
+        ...legacyHandoff,
+        schemaVersion: "1.1.0",
+        handoffRevision: 1,
+        canonicalLearningTopics: legacyHandoff.reviewedLearningTopics.map(
+          (topic, index) => ({
+            id: topic.id,
+            title: topic.title,
+            subjectId: topic.subjectId,
+            aliases: [`도형별칭${index + 1}`],
+            classificationLevel: (["topic", "issue", "subissue"] as const)[
+              index % 3
+            ],
+            studyUnitCodes: [],
+            links: [...topic.links],
+          }),
+        ),
+      }
+    : legacyHandoff;
+  if (declaredLevels && wholeQuestion && "canonicalLearningTopics" in handoff) {
+    const topic = handoff.canonicalLearningTopics[0];
+    const binding = handoff.questionIndex.find(
+      (entry: any) => entry.questionId === topic.links[0].questionId,
+    )!;
+    const source = JSON.parse(
+      readFileSync(fixture("questions.demo.json"), "utf8"),
+    );
+    const question = source.questions.find(
+      (entry: any) => entry.id === binding.questionId,
+    );
+    const expectedText = frequentQuestionText(question);
+    topic.links.push({
+      id: "TEST_ONLY_whole_question",
+      questionId: binding.questionId,
+      sourceKey: binding.sourceKey,
+      subjectId: binding.subjectId,
+      questionRevision: binding.questionRevision,
+      gradingRevision: binding.gradingRevision,
+      questionFingerprint: binding.questionFingerprint,
+      selector: null,
+      expectedText,
+      evidenceLane: "semantic_reviewed",
+      classificationStatus: "confirmed",
+      semanticReason: "도형 문제 전체의 표시를 확인한 합성 의미 연결입니다.",
+      legalVerificationStatus: "not_reviewed",
+      evidence: [
+        {
+          kind: "question_text",
+          sourceFileName: question.source.questionPdf?.fileName ?? null,
+          sourceLocations: question.source.questionPdf
+            ? question.source.questionPdf.pages.map((page: number) => ({
+                page,
+                printedPage: null,
+                bbox: null,
+                coordinateSystem: null,
+              }))
+            : [],
+          contentSha256: await frequentContentSha256(expectedText),
+        },
+      ],
+    });
+  }
   await page
     .getByLabel("쟁점 연결 JSON 가져오기", { exact: true })
     .setInputFiles({
       name: "TEST_ONLY_shapes.frequent-issues.json",
       mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(syntheticHandoff())),
+      buffer: Buffer.from(JSON.stringify(handoff)),
     });
   await expect(
     page.getByText("쟁점 연결 자료를 저장했습니다.", { exact: true }),
@@ -159,7 +232,9 @@ async function setup(page: Page) {
   await expect(
     page.getByRole("heading", { name: "빈출 쟁점", exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".frequent-topic-card")).toHaveCount(1);
+  await expect(page.locator(".frequent-topic-card")).toHaveCount(
+    Math.min(topicCount, 24),
+  );
 }
 
 async function stored(page: Page) {
@@ -186,6 +261,224 @@ async function stored(page: Page) {
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
+test("이전 출처별 선택 상태를 단일 쟁점 목록으로 옮기고 필터를 보존한다", async ({
+  page,
+}) => {
+  await page.goto("/?view=original&mode=demo");
+  const migrated = await page.evaluate(async () => {
+    const frequent = await new Function(
+      "modulePath",
+      "return import(modulePath)",
+    )("/src/original/frequent/FrequentIssues.tsx");
+    const initial = frequent.createFrequentViewState();
+    return ["reviewed-topic", "legacy-issue", "legacy-basis", "authority"].map(
+      (kind) => {
+        const next = frequent.normalizeFrequentViewState({
+          ...initial,
+          kind,
+          filter: {
+            ...initial.filter,
+            subjectId: "",
+            unitId: "CONST-01",
+            year: "2026",
+          },
+          selectedKey:
+            kind === "reviewed-topic"
+              ? "reviewed-topic:TEST_ONLY_shapes"
+              : `${kind}:TEST_ONLY_shapes`,
+          search: "시연",
+          page: 3,
+        });
+        return { kind, next };
+      },
+    );
+  });
+  for (const { kind, next } of migrated) {
+    expect(next).not.toHaveProperty("kind");
+    expect(next.filter).toMatchObject({
+      subjectId: "",
+      unitId: "CONST-01",
+      year: "2026",
+    });
+    expect(next.selectedKey).toBe(
+      kind === "reviewed-topic" ? "reviewed-topic:TEST_ONLY_shapes" : "",
+    );
+    if (kind !== "reviewed-topic") {
+      expect(next.search).toBe("");
+      expect(next.page).toBe(0);
+    }
+  }
+});
+
+test("현재 과목이 없는 단일 과목 자료에서는 있는 과목을 선택하고 전체 과목 선택은 보존한다", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolveValue, reject) => {
+        const request = indexedDB.open("police-ox-storage", 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const transaction = db.transaction("states", "readwrite");
+          const states = transaction.objectStore("states");
+          const get = states.get("original:demo");
+          get.onsuccess = () => {
+            const envelope = get.result;
+            envelope.state.data.questions =
+              envelope.state.data.questions.filter(
+                (question: { subjectId: string }) =>
+                  question.subjectId === "criminal",
+              );
+            states.put(envelope, "original:demo");
+          };
+          transaction.oncomplete = () => {
+            db.close();
+            resolveValue();
+          };
+          transaction.onabort = () => reject(transaction.error);
+        };
+      }),
+  );
+  await page.reload();
+  await navigate(page, "근거·출제 빈도");
+  const subject = page.getByLabel("과목", { exact: true });
+  await expect(subject).toHaveValue("criminal");
+  await expect(subject.locator('option[value="constitution"]')).toHaveCount(0);
+  await expect(page.getByLabel("기존 단원", { exact: true })).toHaveValue("");
+  await expect(page.locator(".frequent-semantic-coverage")).toContainText(
+    "의미 확인 0 / 40문항",
+  );
+  await subject.selectOption("");
+  await page.getByLabel("연도", { exact: true }).selectOption("2026");
+  await expect(subject).toHaveValue("");
+});
+
+test("문항 전체 의미 연결은 지문을 늘리지 않고 사람이 읽을 수 있는 안내를 표시한다", async ({
+  page,
+}) => {
+  await setup(page, 1, true, true);
+  const card = page.locator(".frequent-topic-card").first();
+  await expect(card.locator("dd").first()).toHaveText("2문항");
+  await card
+    .getByRole("button", { name: "관련 기출 보기", exact: true })
+    .click();
+  const detail = page.locator(".frequent-detail");
+  await expect(detail).toContainText("의미 확인 지문 3개");
+  await expect(detail).toContainText("문항 전체 연결 1개");
+  await detail
+    .getByRole("button", { name: "관련 해설·출처", exact: true })
+    .click();
+  const whole = detail
+    .locator(".frequent-variants > li")
+    .filter({
+      hasText: "도형 문제 전체의 표시를 확인한 합성 의미 연결입니다.",
+    });
+  await expect(whole).toContainText("문항 전체 연결입니다.");
+  await expect(whole.locator("blockquote")).toHaveCount(0);
+});
+
+test("별칭으로 canonical 쟁점을 찾고 서로 다른 분류 수준의 순위를 구분한다", async ({
+  page,
+}) => {
+  await setup(page, 3, true);
+  const groups = page.locator(".frequent-level-group");
+  await expect(groups).toHaveCount(3);
+  for (let index = 0; index < 3; index++) {
+    await expect(groups.nth(index).locator(".frequent-topic-card")).toHaveCount(
+      1,
+    );
+    await expect(groups.nth(index).locator(".frequent-rank")).toHaveText("1");
+  }
+  await page.getByLabel("쟁점·별칭 검색", { exact: true }).fill("도형별칭2");
+  await expect(page.locator(".frequent-topic-card")).toHaveCount(1);
+  await expect(page.locator(".frequent-topic-card")).toContainText("시연 2");
+  await expect(page.locator(".frequent-topic-card .frequent-rank")).toHaveText(
+    "1",
+  );
+  await page.getByLabel("쟁점·별칭 검색", { exact: true }).fill("없는 별칭");
+  await expect(
+    page.getByText("검색한 제목이 없습니다", { exact: true }),
+  ).toBeVisible();
+});
+
+test("24개 목록 끝에서 상세를 열어도 넓은 화면 목록을 유지하고 좁은 화면 위치를 복원한다", async ({
+  page,
+}, testInfo) => {
+  await setup(page, 26);
+  await page.getByLabel("기존 단원", { exact: true }).selectOption("CONST-01");
+  const cards = page.locator(".frequent-topic-card");
+  const finalCard = cards.nth(23);
+  await finalCard
+    .getByRole("button", { name: "관련 기출 보기", exact: true })
+    .scrollIntoViewIfNeeded();
+  const widePosition = await page.evaluate(() => window.scrollY);
+  await finalCard
+    .getByRole("button", { name: "관련 기출 보기", exact: true })
+    .click();
+  const detail = page.locator(".frequent-detail");
+  await expect(finalCard).toBeVisible();
+  await expect(detail).toBeVisible();
+  const listBox = (await page.locator(".frequent-list-area").boundingBox())!;
+  const detailBox = (await detail.boundingBox())!;
+  expect(detailBox.x).toBeGreaterThanOrEqual(listBox.x + listBox.width);
+  expect(
+    Math.abs((await page.evaluate(() => window.scrollY)) - widePosition),
+  ).toBeLessThan(10);
+  await page.screenshot({
+    path: testInfo.outputPath("frequent-unified-landscape.png"),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 800, height: 1100 });
+  await detail
+    .getByRole("button", { name: "← 쟁점 목록으로 돌아가기", exact: true })
+    .click();
+  await finalCard
+    .getByRole("button", { name: "관련 기출 보기", exact: true })
+    .scrollIntoViewIfNeeded();
+  const narrowPosition = await page.evaluate(() => window.scrollY);
+  expect(narrowPosition).toBeGreaterThan(100);
+  await finalCard
+    .getByRole("button", { name: "관련 기출 보기", exact: true })
+    .click();
+  await expect(page.locator(".frequent-list-area")).not.toBeVisible();
+  await expect(detail).toBeVisible();
+  await expect(detail.locator("h2")).toBeInViewport();
+  await page.screenshot({
+    path: testInfo.outputPath("frequent-unified-portrait.png"),
+    fullPage: true,
+  });
+  await detail
+    .getByRole("button", { name: "← 쟁점 목록으로 돌아가기", exact: true })
+    .click();
+  await expect(page.getByLabel("기존 단원", { exact: true })).toHaveValue(
+    "CONST-01",
+  );
+  await expect(finalCard).toBeInViewport();
+  await expect
+    .poll(async () =>
+      Math.abs((await page.evaluate(() => window.scrollY)) - narrowPosition),
+    )
+    .toBeLessThan(10);
+  await page
+    .getByRole("navigation", { name: "쟁점 목록 페이지", exact: true })
+    .getByRole("button", { name: "다음", exact: true })
+    .click();
+  await expect(cards).toHaveCount(2);
+  await cards
+    .last()
+    .getByRole("button", { name: "관련 기출 보기", exact: true })
+    .click();
+  await detail
+    .getByRole("button", { name: "← 쟁점 목록으로 돌아가기", exact: true })
+    .click();
+  await expect(
+    page.getByRole("navigation", { name: "쟁점 목록 페이지", exact: true }),
+  ).toContainText("2 / 2");
+});
+
 test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존 풀이·오답 연습을 이어간다", async ({
   page,
 }) => {
@@ -199,13 +492,36 @@ test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존
   expect(await card.locator("dd").allTextContents()).toEqual([
     "2문항",
     "2회",
-    "3개",
     "0문항",
+    "2문항",
   ]);
+  await expect(page.getByLabel("과목", { exact: true })).toHaveValue(
+    "constitution",
+  );
+  await expect(page.locator(".frequent-semantic-coverage")).toContainText(
+    "의미 확인 2 / 20문항",
+  );
+  await expect(page.locator(".frequent-data-details")).not.toHaveAttribute(
+    "open",
+    "",
+  );
+  await expect(page.locator(".frequent-coverage")).not.toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "연결 기준 선택", exact: true }),
+  ).toHaveCount(0);
+  for (const name of [
+    "검토한 학습 쟁점",
+    "원문 검증 쟁점",
+    "원문 검증 근거",
+    "강사 인용 출처",
+  ])
+    await expect(
+      page.getByRole("button", { name: new RegExp(`^${name}`) }),
+    ).toHaveCount(0);
   await page.getByLabel("과목", { exact: true }).selectOption("constitution");
   await page.getByLabel("기존 단원", { exact: true }).selectOption("CONST-04");
   await expect(
-    page.getByText("이 범위의 연결이 없습니다", { exact: true }),
+    page.getByText("이 범위의 의미 확인 쟁점이 없습니다", { exact: true }),
   ).toBeVisible();
   await page.getByLabel("기존 단원", { exact: true }).selectOption("CONST-01");
   await page.getByLabel("연도", { exact: true }).selectOption("2026");
@@ -213,11 +529,16 @@ test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존
   expect(await card.locator("dd").allTextContents()).toEqual([
     "1문항",
     "1회",
-    "2개",
     "0문항",
+    "1문항",
   ]);
-  await card.getByRole("button", { name: "읽기 자료", exact: true }).click();
+  await card
+    .getByRole("button", { name: "관련 기출 보기", exact: true })
+    .click();
   const detail = page.locator(".frequent-detail");
+  await detail
+    .getByRole("button", { name: "관련 해설·출처", exact: true })
+    .click();
   await expect(
     detail.getByRole("heading", { name: topicTitle, exact: true }),
   ).toBeVisible();
@@ -226,13 +547,17 @@ test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존
   ).toHaveText(excerptText);
   await expect(
     detail.getByText("정리 본문 미등록", { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
     detail.getByText("별도 정리 미등록", { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(detail.locator(".frequent-review-notes")).toContainText(
     reviewedNote,
   );
+  const reviewRecord = detail.locator(".frequent-review-record");
+  await expect(reviewRecord).not.toHaveAttribute("open", "");
+  await reviewRecord.locator("summary").click();
+  await expect(reviewRecord).toHaveAttribute("open", "");
   await expect(detail.locator(".frequent-variants > li")).toHaveCount(2);
 
   const original = detail
@@ -241,7 +566,10 @@ test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존
     .last();
   await original.scrollIntoViewIfNeeded();
   const readingScroll = await page.evaluate(() => window.scrollY);
-  expect(readingScroll).toBeGreaterThan(100);
+  const readingPaneScroll = await detail.evaluate(
+    (element) => element.scrollTop,
+  );
+  expect(readingScroll + readingPaneScroll).toBeGreaterThan(100);
   await original.click();
   await expect(
     page.getByRole("region", { name: "쟁점 관련 기출 원문", exact: true }),
@@ -266,6 +594,7 @@ test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존
     .getByRole("button", { name: "빈출 쟁점으로 돌아가기", exact: true })
     .click();
   await expect(detail.locator(".frequent-reading")).toBeVisible();
+  await expect(reviewRecord).toHaveAttribute("open", "");
   await expect(page.getByLabel("기존 단원", { exact: true })).toHaveValue(
     "CONST-01",
   );
@@ -273,6 +602,14 @@ test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존
   await expect
     .poll(async () =>
       Math.abs((await page.evaluate(() => window.scrollY)) - readingScroll),
+    )
+    .toBeLessThan(10);
+  await expect
+    .poll(async () =>
+      Math.abs(
+        (await detail.evaluate((element) => element.scrollTop)) -
+          readingPaneScroll,
+      ),
     )
     .toBeLessThan(10);
 
@@ -302,14 +639,15 @@ test("단원·연도 범위의 쟁점 집계에서 읽기·원문 왕복·기존
     .getByRole("button", { name: "빈출 쟁점으로 돌아가기", exact: true })
     .click();
   await expect(detail.locator(".frequent-reading")).toBeVisible();
+  await expect(reviewRecord).toHaveAttribute("open", "");
   await expect(
     detail.getByRole("button", { name: "오답만 1문항 풀기", exact: true }),
   ).toBeEnabled();
   expect(await card.locator("dd").allTextContents()).toEqual([
     "1문항",
     "1회",
-    "2개",
     "1문항",
+    "0문항",
   ]);
   state = await stored(page);
   expect(state.attempts[0].result).toBe("incorrect");
@@ -334,7 +672,11 @@ test("모의고사 중에는 선택해 둔 읽기·출처·원문 미리보기�
   await setup(page);
   await page
     .locator(".frequent-topic-card")
-    .getByRole("button", { name: "읽기 자료", exact: true })
+    .getByRole("button", { name: "관련 기출 보기", exact: true })
+    .click();
+  await page
+    .locator(".frequent-detail")
+    .getByRole("button", { name: "관련 해설·출처", exact: true })
     .click();
   await expect(page.locator(".frequent-reading")).toContainText(excerptText);
   await navigate(page, "모의고사");
@@ -376,7 +718,11 @@ test("태블릿 가로·세로에서 선택 범위와 읽기 자료가 가로로
   await page.getByLabel("연도", { exact: true }).selectOption("2026");
   await page
     .locator(".frequent-topic-card")
-    .getByRole("button", { name: "읽기 자료", exact: true })
+    .getByRole("button", { name: "관련 기출 보기", exact: true })
+    .click();
+  await page
+    .locator(".frequent-detail")
+    .getByRole("button", { name: "관련 해설·출처", exact: true })
     .click();
   for (const viewport of [
     { width: 1280, height: 800 },
